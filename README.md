@@ -254,12 +254,14 @@ All names are the OpenTelemetry names of the Substrate metric registry (`docs/me
 | `health` | `envoy_server_live` | The result is not above 0. Then the run fails. This proves that Prometheus scrapes Envoy |
 | `routed` | `atenet_router_route_duration_seconds_count` for the template | The count changed in the idle time. The router and the egress proxy record every routed request here |
 | `resumed` | `ate_actor_lifecycle_operation_duration_seconds_count` with `ate_actor_operation_name="resume"` for the template | ateapi resumed the actor in the idle time. The actor did not rest for the full time |
-| `inflight` | `envoy_cluster_upstream_rq_active` for the `actor_*` clusters of the router | A request was in flight at any time in the idle time. Envoy has no series for one actor, so a request of any actor counts |
+| `inflight` | `envoy_cluster_upstream_rq_active` for the `actor_*` clusters of the router | A request or an open tunnel was active at any time in the idle time. Envoy has no series for one actor, so any actor counts. A client that keeps a tunnel open, such as `kubectl ate proxy`, keeps the actor busy until the router closes the unused tunnel after 60 seconds |
 | `cpu` | `ate_actor_stats_cpu_time_seconds_total` for the template | The rate over the idle time is above `idleCpuCores` |
 
 Upstream v1.0.0 has no metric or field for the last activity of an actor. The `routed` and `resumed` queries compare the count now with the count one idle time ago. They do not use `increase()`, because a counter that starts at 1 has no earlier sample, and `increase()` would read 0 for the first request.
 
 The queries are values (`queries.*`). Change them if your backend names the metrics another way, for example with Google Managed Prometheus. The script replaces `@ATESPACE@`, `@TEMPLATE@` and `@WINDOW@`.
+
+The check of an actor ends at the first busy signal, so the later queries do not run. An actor that was just resumed has no CPU series yet, and this keeps it from failing the run.
 
 ### The fail-safe rule
 
@@ -280,10 +282,11 @@ A request can still arrive between the last query and the suspend. The idle time
 
 - The service account of the CronJob, with only the editor role of the atespace, can read and suspend the actor.
 - A request resumes the suspended actor. A run right after it reports the actor as busy and leaves it running.
+- The harness closes the tunnel of its proxy and waits for the idle time. Then the queries for the five signals return numbers, and all of them say idle.
 - After the idle time, a run with a query that Prometheus refuses fails and leaves the idle actor running.
 - With the default queries, the next run suspends the idle actor.
 - A run on a suspended actor does nothing.
-- The next request resumes the actor, and its counters continue.
+- The next request resumes the actor, and its counters continue (they do not restart).
 - The default queries return real series: the metric names above exist in the kind cluster.
 
 The harness does not verify:
@@ -331,6 +334,7 @@ The test does these steps, in order:
 9. It changes the template and verifies that the suspended actor moves in place with the same identity and that its counters restart from the new template. The chart has no durable volumes, so the test does not verify that a volume survives the move.
 10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
 11. It changes only the egress rules and verifies that the policy updates in place.
+12. It deploys a minimal Prometheus and the `substrate-idle-suspend` chart, and verifies that a busy actor stays, a failing signal query suspends nothing, an idle actor is suspended and the next request resumes it. See "Suspend idle actors".
 
 The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. A kind node with 4 GiB of memory and 2 CPUs is enough: it peaked at 4.2 GiB, including page cache, with no OOM kill.
 

@@ -1,0 +1,21 @@
+suite: substrate-install selinux patch
+templates:
+  - templates/configmap.yaml
+values:
+  - ../ci/aws-values.yaml
+tests:
+  - it: renders no selinux patch by default
+    asserts:
+      - notExists:
+          path: data["patch-25-atelet-selinux"]
+
+  - it: sets spc_t on the atelet pods when enabled
+    set:
+      selinux.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["patch-25-atelet-selinux"]
+          pattern: 'name: atelet[\s\S]*seLinuxOptions:\n\s+type: spc_t'
+      - matchRegex:
+          path: data["patch-25-atelet-selinux"]
+          pattern: 'op: test\n\s+path: /spec/template/spec/containers/0/name\n\s+value: atelet'

@@ -135,6 +135,17 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "patch" (toYaml $merge)) (dict "target" $target "patch" (toYaml $guard)))) }}
 {{- end -}}
 
+{{- /* The SELinux patch: a Component that sets the type spc_t on the atelet pods. On nodes that enforce SELinux, atelet runs as container_t and cannot write /var/lib/ate on the host, so it exits at start. The test operation stops the install if upstream moves the container. */ -}}
+{{- define "substrate-install.seLinuxPatch" -}}
+{{- $target := dict "kind" "DaemonSet" "name" "atelet" -}}
+{{- $guard := list (dict "op" "test" "path" "/spec/template/spec/containers/0/name" "value" "atelet") -}}
+{{- $merge := dict "apiVersion" "apps/v1" "kind" "DaemonSet" "metadata" (dict "name" "atelet") "spec" (dict "template" (dict "spec" (dict "securityContext" (dict "seLinuxOptions" (dict "type" "spc_t"))))) -}}
+# Generated from the selinux values. Do not edit.
+# Workaround: atelet pods run as container_t on SELinux nodes and cannot write /var/lib/ate.
+# Upstream issue: agent-substrate/substrate#3597.
+{{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "target" $target "patch" (toYaml $guard)) (dict "target" $target "patch" (toYaml $merge)))) }}
+{{- end -}}
+
 {{- /* Every patch Component by directory name: the files in patches/ and the generated ones. */ -}}
 {{- define "substrate-install.patchFiles" -}}
 {{- $files := dict -}}
@@ -143,6 +154,9 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{- end -}}
 {{- $_ := set $files "20-storage-profile" (include "substrate-install.storagePatch" .) -}}
 {{- $_ = set $files "30-postgres-sizing" (include "substrate-install.postgresPatch" .) -}}
+{{- if .Values.selinux.enabled -}}
+{{- $_ = set $files "25-atelet-selinux" (include "substrate-install.seLinuxPatch" .) -}}
+{{- end -}}
 {{- toJson $files -}}
 {{- end -}}
 

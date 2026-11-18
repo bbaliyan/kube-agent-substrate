@@ -1,0 +1,21 @@
+# substrate-workers values for a small self-managed cluster on RHEL-family nodes.
+# Install the chart in its own namespace, with the label pod-security.kubernetes.io/enforce=privileged.
+pool:
+  name: agents
+  labels:
+    workload: agents
+  # Placeholder label. Put it on the nodes that have one fixed VM CPU type.
+  nodeSelector:
+    worker-cpu-model: fixed
+workers:
+  # Two workers: the golden snapshot holds one while an actor runs on the other.
+  replicas: 2
+  cpu: "1"
+  memory: 2Gi
+# The nodes run SELinux in enforcing mode. See "SELinux nodes" in the README.
+selinux:
+  enabled: true
+# Set enabled to true if the cluster runs the Prometheus Operator.
+observability:
+  enabled: false
+  podMonitorLabels: {}

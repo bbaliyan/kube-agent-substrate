@@ -1,0 +1,18 @@
+# One sample actor. Use the same file for the substrate-actor and the substrate-registration release.
+# Placeholder image: set the digest of your own actor image.
+snapshotStorageLocation: s3://snapshots/actors
+actors:
+  - name: sample
+    atespace: samples
+    image: registry.example.com/agents/sample@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    workerSelector:
+      workload: agents
+    resources:
+      cpuMillicores: 1000
+      memoryBytes: 536870912
+    wakeupProbe:
+      path: /readyz
+      port: 80
+    egress:
+      - protocol: https
+        hostnames: [example.com]

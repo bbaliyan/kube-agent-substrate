@@ -43,6 +43,13 @@
         }
       }
     },
+    "selinux": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
     "postgres": {
       "type": "object",
       "additionalProperties": false,

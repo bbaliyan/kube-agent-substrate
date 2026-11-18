@@ -114,10 +114,12 @@ POLICY
   # idleMinutes is 1. Wait until every signal has been quiet for one minute and the scrape has seen it.
   # The proxy of kubectl ate holds a CONNECT tunnel open. Envoy counts it as an active request of the
   # actor_connect cluster until it closes, and the chart treats an open tunnel as a busy actor. Close it.
+  # Envoy closes an unused tunnel after 60 seconds (tunnelIdleTimeout in the router), and the window of
+  # the in-flight signal is 1 minute, so the wait must be longer than 2 minutes.
   kill "$proxy_pid" 2>/dev/null || true
   wait "$proxy_pid" 2>/dev/null || true
   proxy_pid=
-  sleep 80
+  sleep 135
   idle_series
   # A query that Prometheus refuses: every other signal says idle, so only the fail-safe keeps the actor.
   idle_install --set "queries.cpu=sum(" || fail "the upgrade with a broken query failed"

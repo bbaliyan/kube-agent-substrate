@@ -116,7 +116,10 @@ start_proxy() {
   wait_for 60 "the proxy answers" curl -sf -m 20 "http://127.0.0.1:$proxy_port/readyz"
 }
 counters() {
-  curl -sf -m 60 "http://127.0.0.1:$proxy_port/" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: \([0-9]*\) | preserved rootfs counter: \([0-9]*\).*/\1 \2 \3/p'
+  local raw
+  raw="$(curl -sS -m 60 "http://127.0.0.1:$proxy_port/")" || return 1
+  echo "$raw" >>"$logs/counter-raw.txt"
+  echo "$raw" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: \([0-9]*\) | preserved rootfs counter: \([0-9]*\).*/\1 \2 \3/p'
 }
 # Verifies that the next request continues every counter from the values in $1.
 expect_continued() {
@@ -305,7 +308,7 @@ start_proxy
 counters >/dev/null
 counters >/dev/null
 last_counters="$(counters)"
-[ -n "$last_counters" ] || fail "the counter gave no answer"
+[ -n "$last_counters" ] || { tail -3 "$logs/counter-raw.txt" "$logs/proxy.log"; fail "the counter gave no answer"; }
 log "counters before the first suspend: $last_counters"
 
 step "Check that the actor suspends"

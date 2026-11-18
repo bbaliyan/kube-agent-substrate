@@ -16,42 +16,4 @@ data:
   egress-policy.yaml: |
     {{- $egress | nindent 4 }}
   {{- end }}
-{{- if $.Values.apply.enabled }}
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ $actor.name }}-apply-{{ cat $template $egress | sha256sum | trunc 8 }}
-  labels:
-    {{- include "substrate-actor.labels" $ctx | nindent 4 }}
-spec:
-  ttlSecondsAfterFinished: 3600
-  backoffLimit: 6
-  template:
-    metadata:
-      labels:
-        {{- include "substrate-actor.labels" $ctx | nindent 8 }}
-    spec:
-      restartPolicy: OnFailure
-      serviceAccountName: {{ $.Values.apply.serviceAccountName }}
-      containers:
-        - name: apply
-          image: {{ $.Values.apply.image }}
-          command:
-            - sh
-            - -c
-            - |
-              set -eu
-              kubectl-ate create actor-template -f /config/template.yaml
-              {{- if $actor.egress }}
-              kubectl-ate create egress-policy {{ $actor.name }} -a {{ $actor.atespace }} -f /config/egress-policy.yaml
-              {{- end }}
-          volumeMounts:
-            - name: config
-              mountPath: /config
-      volumes:
-        - name: config
-          configMap:
-            name: {{ $actor.name }}-actor
-{{- end }}
 {{- end }}

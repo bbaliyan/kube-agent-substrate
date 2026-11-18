@@ -1,8 +1,5 @@
 # AWS profile, one actor. Placeholder PR-review example: copy it and set your own values.
 snapshotStorageLocation: objectstore://example-snapshots
-apply:
-  enabled: true
-  image: registry.example.com/tools/kubectl-ate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 actors:
   - name: pr-review
     atespace: reviews

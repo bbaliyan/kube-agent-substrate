@@ -19,8 +19,6 @@ The `aws` and `onprem` files differ only in values: the snapshot location, the s
 
 The values schema rejects an image reference that has no digest.
 
-The `apply` Job registers each actor with the control plane through `kubectl-ate`. It is off by default. To turn it on, set `apply.enabled` and `apply.image`.
-
 ## Checks
 
 Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets.
@@ -29,8 +27,7 @@ The render lint is a quick lint. It runs `helm template` and `kubeconform` for e
 
 Not covered by any check in this repo:
 
-- An install on a cluster. The ActorTemplate and the EgressPolicy are not Kubernetes resources. The `apply` Job sends them to the control plane, and only a cluster can show that it accepts them.
-- Whether the `apply` Job is safe to repeat. It calls `kubectl-ate create` and has not run against a cluster.
+- An install on a cluster. The ActorTemplate and the EgressPolicy are not Kubernetes resources. The chart renders them into a ConfigMap as data. A registration step, which this repo does not have yet, must apply them.
 - IAM-based S3 access, SELinux enforcement and microVMs.
 
 ## Workaround ledger
@@ -39,7 +36,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 
 | Workaround | Upstream issue | Delete when it lands |
 |---|---|---|
-| `apply` Job that registers actors with `kubectl-ate`, because an ActorTemplate is not a CRD | none known | The Job, once upstream offers a declarative resource for actors |
+| Registration of actors and template swap (planned). An ActorTemplate is not a CRD, and an EgressPolicy belongs to a running actor, not to a template | none known | The registration step, once upstream offers a declarative resource for actors |
 | Install Job around `ate-setup` (planned) | #3158, #3170, #3686, #3240 | The Job, and use the upstream Helm charts |
 | Storage profile patches for S3 (planned) | #3668, #2378 | The patches, and set the backend in values |
 | Opt-in SELinux admission policy (planned) | #3597 | The policy |

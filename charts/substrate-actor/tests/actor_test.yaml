@@ -34,7 +34,7 @@ tests:
     template: templates/actor.yaml
     asserts:
       - hasDocuments:
-          count: 6
+          count: 3
 
   - it: omits the egress policy when an actor has no egress rules
     values:
@@ -47,15 +47,6 @@ tests:
       - notExists:
           path: data["egress-policy.yaml"]
 
-  - it: renders no Job when apply is off
-    values:
-      - ../ci/aws-values.yaml
-    set:
-      apply.enabled: false
-    template: templates/actor.yaml
-    asserts:
-      - hasDocuments:
-          count: 1
 
   - it: renders the webhook ingress with the configured host
     values:
@@ -72,11 +63,70 @@ tests:
           path: spec.ingressClassName
           value: traefik
 
-  - it: rejects an actor image without a digest
-    values:
-      - ../ci/aws-values.yaml
+  - it: accepts a tag together with a digest
     set:
-      actors[0].image: registry.example.com/agents/pr-review:1.0
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe:1.2@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/actor.yaml
+
+  - it: accepts a reference with no registry
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: probe@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/actor.yaml
+
+  - it: rejects an image without a digest
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
     asserts:
       - failedTemplate:
           errorPattern: "does not match pattern"
+
+  - it: rejects an image with a tag and no digest
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe:1.2
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - failedTemplate:
+          errorPattern: "does not match pattern"
+
+  - it: rejects an actor without a memory limit
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {cpuMillicores: 1000}
+    asserts:
+      - failedTemplate:
+          errorPattern: "memoryBytes"
+
+  - it: rejects an actor without a cpu limit
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {memoryBytes: 1073741824}
+    asserts:
+      - failedTemplate:
+          errorPattern: "cpuMillicores"

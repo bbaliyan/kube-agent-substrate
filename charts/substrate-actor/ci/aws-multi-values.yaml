@@ -1,8 +1,5 @@
 # AWS profile, three actors. Placeholder PR-review example: copy it and set your own values.
 snapshotStorageLocation: objectstore://example-snapshots
-apply:
-  enabled: true
-  image: registry.example.com/tools/kubectl-ate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 actors:
   - name: pr-review
     atespace: reviews
@@ -48,10 +45,16 @@ actors:
   - name: docs-writer
     atespace: writing
     image: registry.example.com/agents/docs-writer@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    resources:
+      cpuMillicores: 1000
+      memoryBytes: 2147483648
     command: ["/usr/local/bin/docs-writer"]
   - name: triage
     atespace: reviews
     image: registry.example.com/agents/triage@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    resources:
+      cpuMillicores: 1000
+      memoryBytes: 2147483648
     egress:
       - protocol: http
         hostnames: [tracker.example.com]

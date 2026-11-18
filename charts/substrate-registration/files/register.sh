@@ -28,7 +28,10 @@ SEEN_ATESPACES=" "
 LAST_ERROR=""
 
 log() { printf '%s\n' "$*"; }
-ate() { kubectl-ate --token-file "$TOKEN_FILE" "$@"; }
+# --preview lets the client use the preview features that the server enables. The template
+# of the substrate-actor chart names its own snapshot location, which needs the gate
+# PerTemplateSnapshotLocation on the server and the client flag.
+ate() { kubectl-ate --preview --token-file "$TOKEN_FILE" "$@"; }
 
 # Fails with the error text, except when the error says the object is missing.
 # The text of a gRPC status error holds its code. Only stdout is parsed as JSON.

@@ -16,6 +16,7 @@ s="$STATE"
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
+    --preview) shift ;;
     --token-file | -o | -a) shift 2 ;;
     *) args+=("$1"); shift ;;
   esac

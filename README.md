@@ -7,6 +7,7 @@ Helm charts that run [Agent Substrate](https://github.com/agent-substrate/substr
 | Chart | What it does |
 |---|---|
 | `substrate-install` | Installs or upgrades the Substrate control plane with a Job that runs `ate-setup` from a pinned install image |
+| `substrate-registration` | Registers the actors of the `substrate-actor` chart in a running control plane with a Job that runs `kubectl-ate` from a pinned registration image |
 | `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist, credential injection, webhook shim and ingress |
 
 ## Install Substrate
@@ -93,6 +94,68 @@ The chart pins the image by digest. The default `image.digest` is all zeros and 
 
 The install uses the gVisor sandbox class only. The chart sets `sandboxClasses: gvisor` and a value cannot change it. A microVM class on a cluster that is not kind needs a cloud CLI to stage its assets, which the image does not hold. Use gVisor until this changes.
 
+## Register actors
+
+An ActorTemplate, an Actor and an EgressPolicy are not Kubernetes resources. They live in the control plane database, and only `kubectl ate` writes them. The `substrate-registration` chart runs one Job that does this for the actors of the `substrate-actor` chart.
+
+To register:
+
+1. Install the `substrate-actor` chart. It renders one ConfigMap for each actor.
+2. Add the service account of the Job to the bootstrap owners of the control plane. The Job creates atespaces, and only a global owner can. Append `system:serviceaccount:<namespace>:<release>-substrate-registration` to `config.ateapi.authz.bootstrapOwners` in the `substrate-install` values. Do not replace the list. A set list drops the default `ate-client` principal, which the upstream demos and `ate-setup` use. Add `system:serviceaccount:ate-system:ate-client` to the list if you still need it.
+3. Copy `charts/substrate-registration/ci/aws-values.yaml` or `onprem-values.yaml`. Use the same `snapshotStorageLocation` and `actors` as the actor release. One values file can serve both releases.
+4. Set `image.digest` to the digest of the published registration image.
+5. Install the chart with your values file, or sync it with Argo CD.
+
+### How the Job works
+
+1. It waits until `kubectl ate` can read the atespaces. This shows that a pod of `ate-api-server` is ready.
+2. For each actor, it waits until the ConfigMap holds the template name and the egress hash that the Job expects. A stale ConfigMap never gets registered.
+3. It creates the atespace if it is missing.
+4. If the actor does not exist, it creates the template and the actor.
+5. If the actor is `ACTOR_STATE_DELETING`, an earlier delete did not finish. It runs the delete again and creates the actor.
+6. If the actor uses an older template and is `ACTOR_STATE_SUSPENDED`, it moves the actor with `kubectl ate update actor --template`. The actor keeps its state. If the server refuses the update, for example because the snapshot location changed, the Job deletes the actor and creates it again. The state is lost, and the log says so.
+7. If the actor uses an older template and is `ACTOR_STATE_CRASHED`, it deletes the actor and creates it again.
+8. If the actor uses an older template and is in any other state, it is busy. The Job leaves it alone.
+9. It brings the egress policy to the rules in the ConfigMap. It creates, updates in place, or deletes the policy, so an egress change never recreates the actor.
+10. It deletes the older templates of the actor.
+11. If any actor was busy, the Job fails with a message that names the actors.
+
+A busy actor fails the Job so the drift shows in Argo CD. The Job retries up to `backoffLimit` times. The actor then moves if it has suspended. Otherwise, suspend the actor and sync again.
+
+A template is immutable, so its name carries a hash of what it holds: the actor values without the webhook and the egress rules, and the snapshot location. A change to the image, command, environment, resources, worker selector or probe gives a new name. A change to the webhook or the egress rules does not. The egress policy has its own hash in the ConfigMap, and the Job compares the policy with the live one. The `substrate-actor` chart renders both values, and the `substrate-registration` chart computes the same values from the same values file. `make test-contract` fails if the two drift.
+
+The Job and its ConfigMap carry a hash of the whole pod spec and the plan in their names, like the install Job. A change creates a new Job. The default values set Argo CD hook annotations, so Argo CD runs the Job again on every sync and deletes the old one first. Helm deletes a finished Job after `ttlSecondsAfterFinished`.
+
+### Access of the Job
+
+`kubectl ate` port-forwards to a pod of `ate-api-server` and sends a bearer token. The Job projects a token of its own service account, with the audience `api.<namespace>.svc`. The principal is `system:serviceaccount:<release namespace>:<service account>`. Port-forward needs no label on the namespace of the Job, because the NetworkPolicy of the control plane does not see the tunnel.
+
+The chart creates this RBAC in the namespace of the control plane:
+
+| Resource | Verbs | Why |
+|---|---|---|
+| `services/api` | `get` | `kubectl ate` finds the pods behind the Service |
+| `pods` | `list` | `kubectl ate` picks a ready pod |
+| `pods/portforward` | `get`, `create` | `kubectl ate` opens the tunnel |
+
+`kubectl ate` also lists ClusterTrustBundles to read the CA of `ate-api-server`. Default RBAC lets every service account do this, so the chart adds no role for it. If your cluster removed that default, grant `list` on `clustertrustbundles` to the service account of the Job.
+
+Port-forward RBAC cannot name a pod, so the Role covers every pod in the namespace of the control plane. Upstream documents the same limit.
+
+### What the kind harness verifies
+
+The kind harness is a later ticket. It must show on a real control plane:
+
+- A sample actor registers: the atespace, the template, the actor and the egress policy exist.
+- A second run changes nothing.
+- A changed template moves a suspended actor in place and keeps its state, and the Job fails on a resumed actor, then moves it after suspend.
+- An egress-only change updates the live policy in place. The real protojson output of `get egress-policy` must match the rules that the chart renders, or the Job updates the policy on every run.
+- The Job authenticates with its own token and the RBAC above, with no extra grant.
+
+### Publish the registration image
+
+CI pushes the multi-arch image to `ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration` on every push to `main`, like the install image. The image holds `kubectl-ate`, `jq` and `bash`. The build compiles `kubectl-ate` from the release tag and checks the commit. It downloads `jq` for each architecture and verifies a pinned SHA-256 checksum. A running Job downloads nothing. `make test-image-registration` runs the tools of the image.
+
 ## Define an actor
 
 1. Copy `charts/substrate-actor/ci/aws-values.yaml` or `charts/substrate-actor/ci/onprem-values.yaml`.
@@ -106,7 +169,7 @@ The values schema rejects an image reference that has no digest.
 
 ## Checks
 
-Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets.
+Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets. It also runs the registration script against a stub of `kubectl-ate` (`make test-register`) and checks that the actor and registration charts agree on template names (`make test-contract`). The stub tests the idle gate and the no-change rerun, not the real client.
 
 Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the install image and runs the patch steps on the real release checkout. It also applies the generated storage patch of each `ci` values file and verifies the backend on both plugin sidecars. CI runs it, and builds the arm64 image. CI does not push the image yet.
 
@@ -115,7 +178,7 @@ The render lint is a quick lint. It runs `helm template` and `kubeconform` for e
 Not covered by any check in this repo:
 
 - An install of the control plane on a cluster. The checks render the Job and run the patches on the checkout. They do not run `ate-setup` against a cluster.
-- An install of an actor on a cluster. The ActorTemplate and the EgressPolicy are not Kubernetes resources. The chart renders them into a ConfigMap as data. A registration step, which this repo does not have yet, must apply them.
+- An install of an actor on a cluster, and a run of the registration Job against a control plane. The kind harness will cover them.
 - IAM-based S3 access, SELinux enforcement and microVMs.
 
 ## Workaround ledger
@@ -124,7 +187,11 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 
 | Workaround | Upstream issue | Delete when it lands |
 |---|---|---|
-| Registration of actors and template swap (planned). An ActorTemplate is not a CRD, and an EgressPolicy belongs to a running actor, not to a template | none known | The registration step, once upstream offers a declarative resource for actors |
+| Registration of actors and template swap. An ActorTemplate is not a CRD, a template is immutable, and an EgressPolicy belongs to an actor, not to a template | none known | The registration chart, once upstream offers a declarative resource for actors |
+| Template name carries a hash, because a template has no labels or annotations to hold the applied inputs. The egress policy has no name, so the Job compares it with the live policy | none known | The hash in the name, once a template can hold metadata or be updated |
+| Move an actor to a new template only while it is suspended, because the server refuses the change otherwise, and recreate it when the server refuses an in-place update | none known | The gate and the recreate, once upstream moves a running actor to a new template |
+| `kubectl ate` creates a token for the shared `ate-client` account when given no token, so the Job passes its own token with `--token-file` and the account must be a bootstrap owner | none known | The bootstrap owner entry, once a role can be granted to an account without the bootstrap list |
+| Port-forward RBAC covers every pod in the control plane namespace, because RBAC cannot name a pod that changes on every rollout | none known | The Role, once `kubectl ate` can reach the API through the Service |
 | Install Job around `ate-setup`, with its image and patches | #3158, #3170, #3686, #3240 | The Job and the image, and use the upstream Helm charts |
 | Drop the atelet image credential provider flags and host mounts, because RKE2 nodes have no provider | #2669, #3667 | The patch `10-atelet-no-credential-provider` |
 | gVisor class only, because microVM asset staging needs a cloud CLI off kind | none known | The `sandboxClasses` setting in the chart, once the install can stage microVM assets |

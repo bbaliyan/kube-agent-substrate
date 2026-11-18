@@ -1,0 +1,44 @@
+# Give this chart the same `snapshotStorageLocation` and `actors` as the
+# substrate-actor chart. Use one values file for both releases. The Job reads the
+# actor data from the ConfigMaps that the substrate-actor chart renders.
+snapshotStorageLocation: objectstore://substrate-snapshots
+actors: []
+
+substrate:
+  # The release of the control plane. The registration image is tagged with the same version.
+  version: v1.0.0
+  # The namespace of ate-api-server.
+  namespace: ate-system
+
+image:
+  repository: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration
+  # The all-zero digest never pulls. Set the digest of the published image.
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+# Seconds the Job waits for ate-api-server and for the actor ConfigMaps.
+waitSeconds: 900
+
+backoffLimit: 2
+activeDeadlineSeconds: 1800
+# The Job is deleted this long after it finishes.
+ttlSecondsAfterFinished: 86400
+
+# Argo CD runs the Job again on every sync, so a busy actor gets its swap on a later sync.
+job:
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+
+serviceAccount:
+  name: ""

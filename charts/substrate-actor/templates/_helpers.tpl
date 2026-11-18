@@ -11,11 +11,17 @@ substrate.actor: {{ .actor.name }}
 substrate.component: webhook
 {{- end -}}
 
+{{- /* An ActorTemplate is immutable, so its name carries a hash of what it holds: the actor values without the webhook and the egress rules, and the snapshot location. The substrate-registration chart builds the same name from the same values. */ -}}
+{{- define "substrate-actor.templateName" -}}
+{{- $inputs := dict "actor" (omit .actor "webhook" "egress") "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
+{{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}
+{{- end -}}
+
 {{- /* The ActorTemplate is a protojson object for kubectl-ate, not a Kubernetes resource. */ -}}
 {{- define "substrate-actor.template" -}}
 metadata:
   atespace: {{ .actor.atespace }}
-  name: {{ .actor.name }}
+  name: {{ include "substrate-actor.templateName" . }}
 {{- with .actor.workerSelector }}
 workerSelector:
   matchLabels: {{ toJson . }}
@@ -80,4 +86,26 @@ rules:
         credentialUri: {{ .credentialUri }}
 {{- end }}
 {{- end }}
+{{- end -}}
+
+{{- /* The egress policy changes in place, so it has its own hash. The substrate-registration chart builds the same hash. */ -}}
+{{- define "substrate-actor.egressHash" -}}
+{{- toJson (default (list) .actor.egress) | sha256sum | trunc 10 -}}
+{{- end -}}
+
+{{- /* The same policy as "substrate-actor.egress", as JSON, so a client can compare it with the live policy. */ -}}
+{{- define "substrate-actor.egressJson" -}}
+{{- $rules := list -}}
+{{- range .actor.egress -}}
+{{- $protocol := .protocol -}}
+{{- $rule := dict "hostnames" .hostnames -}}
+{{- with .ports }}{{- $_ := set $rule "ports" (dict "numbers" .) -}}{{- end -}}
+{{- with .credential -}}
+{{- $header := dict "header" .header "credentialUri" .credentialUri -}}
+{{- with .prefix }}{{- $_ := set $header "prefix" . -}}{{- end -}}
+{{- $_ := set $rule "effects" (dict "replaceHeaders" (list $header)) -}}
+{{- end -}}
+{{- $rules = append $rules (dict $protocol $rule) -}}
+{{- end -}}
+{{- toJson (dict "metadata" (dict "atespace" $.actor.atespace "name" "default") "rules" $rules) -}}
 {{- end -}}

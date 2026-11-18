@@ -1,0 +1,142 @@
+suite: substrate-registration
+templates:
+  - templates/job.yaml
+  - templates/configmap.yaml
+  - templates/rbac.yaml
+values:
+  - ../ci/onprem-values.yaml
+tests:
+  - it: names the Job and its ConfigMap with a hash of the inputs
+    template: templates/job.yaml
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: "^RELEASE-NAME-substrate-registration-[a-f0-9]{10}$"
+      - matchRegex:
+          path: spec.template.spec.volumes[0].configMap.name
+          pattern: "^RELEASE-NAME-substrate-registration-[a-f0-9]{10}$"
+
+  - it: plans another template name when the template of an actor changes, which gives the Job another name
+    template: templates/configmap.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          env:
+            LOG_LEVEL: debug
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+    asserts:
+      - equal:
+          path: data.plan
+          value: |
+            pr-review reviews pr-review-453ef36640 4f53cda18c
+
+  - it: keeps the Job name when only the webhook of an actor changes
+    template: templates/job.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+          webhook:
+            port: 1
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: "^RELEASE-NAME-substrate-registration-[a-f0-9]{10}$"
+
+  - it: plans the template name that the substrate-actor chart renders
+    template: templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.plan
+          value: |
+            pr-review reviews pr-review-f0132e4d59 29094721af
+
+  - it: runs the pinned image with the service account token as the credential
+    template: templates/job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration:v1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+      - equal:
+          path: spec.template.spec.volumes[2].projected.sources[0].serviceAccountToken.audience
+          value: api.ate-system.svc
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-substrate-registration
+
+  - it: mounts the ConfigMap of each actor
+    template: templates/job.yaml
+    values:
+      - ../ci/aws-values.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[3].projected.sources[0].configMap.name
+          value: pr-review-actor
+
+  - it: grants the account its own namespaced role for the API server and nothing broader
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: ate-system
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [pods/portforward]
+            verbs: [get, create]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [services]
+            resourceNames: [api]
+            verbs: [get]
+
+  - it: binds the role to the service account of the Job
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-substrate-registration
+      - equal:
+          path: metadata.namespace
+          value: ate-system
+
+  - it: rejects an image without a digest
+    template: templates/job.yaml
+    set:
+      image.digest: latest
+    asserts:
+      - failedTemplate: {}
+
+  - it: has no cluster role and no rule beyond the tunnel to the API server
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments]
+            verbs: [get, list, watch]
+        documentSelector:
+          path: kind
+          value: Role

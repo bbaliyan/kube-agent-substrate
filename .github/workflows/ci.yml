@@ -32,6 +32,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make test-image
       - run: make image PLATFORM=linux/arm64 IMAGE=substrate-install:arm64
+      - run: make test-image-registration
+      - run: make image-registration PLATFORM=linux/arm64 REGISTRATION_IMAGE=substrate-registration:arm64
 
   # Pushes the multi-arch image on main only. It tags main-<short sha>, never a release tag.
   publish:
@@ -50,3 +52,4 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: make publish IMAGE=ghcr.io/bbaliyan/kube-agent-substrate/substrate-install:main-${GITHUB_SHA::7} | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: make publish-registration REGISTRATION_IMAGE=ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration:main-${GITHUB_SHA::7} | tee -a "$GITHUB_STEP_SUMMARY"

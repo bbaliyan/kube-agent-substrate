@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "substrate-registration.fullname" . }}-{{ include "substrate-registration.hash" . }}
+  labels:
+    {{- include "substrate-registration.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+immutable: true
+data:
+  register.sh: |
+    {{- .Files.Get "files/register.sh" | nindent 4 }}
+  plan: |
+    {{- include "substrate-registration.plan" . | trim | nindent 4 }}

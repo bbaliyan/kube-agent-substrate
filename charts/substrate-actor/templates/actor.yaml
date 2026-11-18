@@ -10,10 +10,14 @@ metadata:
   labels:
     {{- include "substrate-actor.labels" $ctx | nindent 4 }}
 data:
+  template-name: {{ include "substrate-actor.templateName" $ctx }}
+  egress-hash: {{ include "substrate-actor.egressHash" $ctx }}
   template.yaml: |
     {{- $template | nindent 4 }}
   {{- if $actor.egress }}
   egress-policy.yaml: |
     {{- $egress | nindent 4 }}
+  egress-policy.json: |
+    {{- include "substrate-actor.egressJson" $ctx | nindent 4 }}
   {{- end }}
 {{- end }}

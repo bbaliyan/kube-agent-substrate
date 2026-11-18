@@ -4,6 +4,7 @@
 # Run inside the kube-devenv image. Values arrive as Make variables:
 #   BASE_REF  commit the branch started from; empty skips commit-messages
 #   IMAGE     name of the install image, for image and test-image
+#   REGISTRATION_IMAGE  name of the registration image, for image-registration and test-image-registration
 #   PLATFORM  target platform of image, such as linux/arm64; empty builds for this host
 #
 # image and test-image need Docker. Run them on the host, not in the devenv image.
@@ -14,12 +15,13 @@ SHELL := bash
 CHECKS   ?= /usr/share/kube-devenv/checks
 BASE_REF ?= $(shell git rev-parse --verify --quiet origin/main)
 IMAGE    ?= substrate-install:local
+REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts secrets commit-messages image test-image publish
+.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration
 
-test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts commit-messages
+test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract commit-messages
 
 test-fast: secrets
 
@@ -44,6 +46,18 @@ charts:
 # What the charts render, as declared tests (helm-unittest).
 test-charts:
 	helm unittest charts/*
+
+# The registration script against a stub of kubectl-ate: the idle gate and the no-change rerun.
+test-register:
+	bash charts/substrate-registration/tests/register_test.sh
+
+# The registration chart must plan the template names and egress hashes that the substrate-actor chart renders.
+test-contract:
+	for profile in aws onprem; do \
+	  actor=$$(helm template x charts/substrate-actor -f charts/substrate-actor/ci/$$profile-values.yaml | sed -n 's/^  template-name: //p;s/^  egress-hash: //p' | paste -sd' ' -); \
+	  plan=$$(helm template x charts/substrate-registration -f charts/substrate-registration/ci/$$profile-values.yaml | awk '/^  plan: \|/{f=1;next} f&&/^    /{print $$3, $$4;next} {f=0}' | paste -sd' ' -); \
+	  test -n "$$actor" && test "$$actor" = "$$plan" || { echo "contract drift in $$profile: actor=[$$actor] plan=[$$plan]"; exit 1; }; \
+	done
 
 secrets:
 	$(CHECKS)/secrets.sh .
@@ -100,3 +114,18 @@ publish:
 	docker buildx build --platform linux/amd64,linux/arm64 --push --tag "$(IMAGE)" --metadata-file /tmp/publish-metadata.json images/substrate-install
 	@echo "Published $(IMAGE)"
 	@echo "Digest: $$(python3 -c "import json; print(json.load(open('/tmp/publish-metadata.json'))['containerimage.digest'])")"
+
+# Builds the registration image for the platform of this host. Nothing is pushed.
+image-registration:
+	docker build $(if $(PLATFORM),--platform $(PLATFORM)) --tag "$(REGISTRATION_IMAGE)" images/substrate-registration
+
+# Runs the tools of the image: kubectl-ate reports its version and jq parses.
+test-image-registration: image-registration
+	docker run --rm --entrypoint sh "$(REGISTRATION_IMAGE)" -euc '\
+	  kubectl-ate --version && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null'
+
+# Pushes the multi-arch registration image and prints its digest. CI runs it on main only.
+publish-registration:
+	docker buildx build --platform linux/amd64,linux/arm64 --push --tag "$(REGISTRATION_IMAGE)" --metadata-file /tmp/publish-registration-metadata.json images/substrate-registration
+	@echo "Published $(REGISTRATION_IMAGE)"
+	@echo "Digest: $$(python3 -c "import json; print(json.load(open('/tmp/publish-registration-metadata.json'))['containerimage.digest'])")"

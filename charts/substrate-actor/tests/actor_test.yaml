@@ -130,3 +130,81 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "cpuMillicores"
+
+  - it: names the template after a hash of its inputs and publishes that name for registration
+    values:
+      - ../ci/onprem-values.yaml
+    template: templates/actor.yaml
+    documentSelector:
+      path: metadata.name
+      value: pr-review-actor
+    asserts:
+      - matchRegex:
+          path: data["template-name"]
+          pattern: "^pr-review-[a-f0-9]{10}$"
+      - matchRegex:
+          path: data["template.yaml"]
+          pattern: "(?m)^  name: pr-review-[a-f0-9]{10}$"
+
+  - it: keeps the template name when only the webhook changes
+    template: templates/actor.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          env:
+            LOG_LEVEL: info
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+          webhook:
+            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            port: 9090
+    asserts:
+      - equal:
+          path: data["template-name"]
+          value: pr-review-a175edb34e
+
+  - it: keeps the template name for the same inputs
+    template: templates/actor.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          env:
+            LOG_LEVEL: info
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+          webhook:
+            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            port: 8080
+    asserts:
+      - equal:
+          path: data["template-name"]
+          value: pr-review-a175edb34e
+
+  - it: gives the template a new name when an input of the template changes
+    template: templates/actor.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          env:
+            LOG_LEVEL: debug
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+          webhook:
+            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            port: 8080
+    asserts:
+      - equal:
+          path: data["template-name"]
+          value: pr-review-453ef36640

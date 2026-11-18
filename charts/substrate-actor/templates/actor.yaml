@@ -10,6 +10,7 @@ metadata:
   labels:
     {{- include "substrate-actor.labels" $ctx | nindent 4 }}
 data:
+  template-name: {{ include "substrate-actor.templateName" $ctx }}
   template.yaml: |
     {{- $template | nindent 4 }}
   {{- if $actor.egress }}

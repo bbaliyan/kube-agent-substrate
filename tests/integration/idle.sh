@@ -55,7 +55,11 @@ idle_assert_series() {
   idle_expect_series 'sum(atenet_router_route_duration_seconds_count)'
   idle_expect_series 'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})'
   idle_expect_series 'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})'
-  idle_expect_series 'sum(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="harness"})'
+}
+
+# atelet reports the CPU of an actor after its first sample, up to about 45 seconds after the resume.
+idle_cpu_series() {
+  [ -n "$(idle_value 'sum(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="harness"})')" ]
 }
 
 # True when no request or tunnel was active in the last minute. It is the in-flight query of the chart.
@@ -137,6 +141,8 @@ POLICY
   proxy_pid=
   wait_for 300 "no request or tunnel was active for one minute" idle_inflight_clear
   idle_assert_series
+  wait_for 120 "atelet reports the CPU series of the actor" idle_cpu_series
+  log "series ok: ate_actor_stats_cpu_time_seconds_total"
   # A query that Prometheus refuses: every other signal says idle, so only the fail-safe keeps the actor.
   idle_install --set "queries.cpu=sum(" || fail "the upgrade with a broken query failed"
   if idle_run; then fail "the run passed with a query that Prometheus refuses"; fi

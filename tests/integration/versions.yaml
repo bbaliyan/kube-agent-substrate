@@ -1,0 +1,9 @@
+# Pins for make test-integration. Renovate updates each one through its annotation.
+# renovate: datasource=github-releases depName=kubernetes-sigs/kind
+kindVersion: v0.33.0
+kindSha256Amd64: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+kindSha256Arm64: 20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a2
+# renovate: datasource=docker depName=kindest/node
+kindNodeImage: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+# renovate: datasource=docker depName=registry
+registryImage: registry:3@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c

@@ -1,0 +1,18 @@
+# Test values for the substrate-install chart on kind. The image digest is set by the script.
+storage:
+  profile: s3-compatible
+  bucket: snapshots
+  region: us-east-1
+  s3Compatible:
+    endpoint: http://rustfs.ate-system.svc:9000
+    pathStyle: true
+    credentials:
+      secretName: snapshot-store-keys
+config:
+  # The actor template names its own snapshot location, which needs this gate.
+  preview: PerTemplateSnapshotLocation
+  ateapi:
+    authz:
+      # The registration Job creates atespaces, so its account must be a bootstrap owner.
+      # The list keeps the default ate-client principal.
+      bootstrapOwners: system:serviceaccount:ate-system:ate-client,system:serviceaccount:substrate-system:substrate-registration

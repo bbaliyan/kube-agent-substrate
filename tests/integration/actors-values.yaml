@@ -1,0 +1,21 @@
+# One sample actor. Both the substrate-actor and the substrate-registration release use this file.
+# The script sets actors[0].image to the counter image that it pushed.
+snapshotStorageLocation: s3://snapshots/actors
+actors:
+  - name: counter
+    atespace: harness
+    command: [/counter]
+    workerSelector:
+      workload: counter
+    resources:
+      cpuMillicores: 1000
+      memoryBytes: 536870912
+    wakeupProbe:
+      path: /readyz
+      port: 80
+    egress:
+      - protocol: https
+        hostnames: [example.com]
+      - protocol: tlsPassthrough
+        hostnames: ["*.example.org"]
+        ports: [443]

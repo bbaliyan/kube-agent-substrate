@@ -116,7 +116,7 @@ start_proxy() {
   wait_for 60 "the proxy answers" curl -sf -m 20 "http://127.0.0.1:$proxy_port/readyz"
 }
 counters() {
-  curl -sf -m 60 "http://127.0.0.1:$proxy_port/" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: \([0-9]*\) | preserved rootfs counter: \([0-9]*\).*/\1 \2 \3/p\'
+  curl -sf -m 60 "http://127.0.0.1:$proxy_port/" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: \([0-9]*\) | preserved rootfs counter: \([0-9]*\).*/\1 \2 \3/p'
 }
 # Verifies that the next request continues every counter from the values in $1.
 expect_continued() {
@@ -344,6 +344,7 @@ last_counters="$(counters)"
 for pod in $(kubectl -n ate-system get pods -l app=atelet -o name); do
   kubectl -n ate-system logs "$pod" --all-containers --tail=-1 >>"$logs/atelet-after-revert.log" 2>&1 || true
 done
+grep -iE "s3|download|fetch|restor|snapshot" "$logs/atelet-after-revert.log" | cut -c1-260 | tail -25 || true
 ate suspend actor counter -a harness --mode=sync >"$logs/suspend2.log" 2>&1 || fail "the second suspend failed"
 wait_for 300 "the actor is SUSPENDED again" actor_is ACTOR_STATE_SUSPENDED
 log "the actor ran, suspended, resumed and suspended again"

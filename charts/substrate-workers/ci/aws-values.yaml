@@ -1,0 +1,11 @@
+# AWS profile. One instance type for the whole pool (see the README).
+pool:
+  name: agents
+  labels:
+    workload: pr-review
+  nodeSelector:
+    node.kubernetes.io/instance-type: m6i.2xlarge
+workers:
+  replicas: 4
+  cpu: "2"
+  memory: 4Gi

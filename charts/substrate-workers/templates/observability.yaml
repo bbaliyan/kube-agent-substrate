@@ -1,0 +1,40 @@
+{{- if .Values.observability.enabled }}
+{{- $root := . }}
+{{- range .Values.observability.components }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ printf "%s-%s" $root.Release.Name .name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "substrate-workers.labels" $root | nindent 4 }}
+    {{- with $root.Values.observability.podMonitorLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ $root.Values.observability.controlPlaneNamespace }}]
+  selector:
+    matchLabels:
+      app: {{ .app }}
+  podMetricsEndpoints:
+    - port: {{ .port }}
+      path: {{ .path }}
+      interval: {{ $root.Values.observability.interval }}
+---
+{{- end }}
+{{- range $file, $json := .Values.observability.dashboards }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-dashboard-%s" $root.Release.Name ($file | trimSuffix ".json" | lower | replace "_" "-" | replace "." "-") | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "substrate-workers.labels" $root | nindent 4 }}
+    {{ $root.Values.observability.dashboardLabel }}: "1"
+data:
+  {{ $file }}: |-
+    {{- $json | nindent 4 }}
+---
+{{- end }}
+{{- end }}

@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "name": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
+    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } }
+  },
+  "properties": {
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$", "maxLength": 63 },
+        "labels": { "$ref": "#/definitions/stringMap" },
+        "nodeSelector": { "$ref": "#/definitions/stringMap" },
+        "tolerations": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "digest"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$" },
+        "tag": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$", "description": "A tag alone is rejected." }
+      }
+    },
+    "workers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas", "cpu", "memory"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 0 },
+        "cpu": { "type": "string", "pattern": "^([1-9][0-9]*m|[0-9]+(\\.[0-9]+)?)$", "description": "A Kubernetes quantity such as \"500m\" or \"2\"." },
+        "memory": { "type": "string", "pattern": "^[1-9][0-9]*(Ki|Mi|Gi|Ti|k|M|G|T)?$", "description": "A Kubernetes quantity such as \"2Gi\"." }
+      }
+    },
+    "sandboxClass": { "enum": ["gvisor"] },
+    "selinux": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "controlPlaneNamespace": { "$ref": "#/definitions/name" },
+        "podMonitorLabels": { "$ref": "#/definitions/stringMap" },
+        "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "app", "port", "path"],
+            "properties": {
+              "name": { "$ref": "#/definitions/name" },
+              "app": { "type": "string", "minLength": 1 },
+              "port": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "pattern": "^/" }
+            }
+          }
+        },
+        "dashboards": { "$ref": "#/definitions/stringMap" },
+        "dashboardLabel": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

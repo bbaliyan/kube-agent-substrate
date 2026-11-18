@@ -1,0 +1,50 @@
+# The worker pool. One release makes one WorkerPool in the release namespace.
+pool:
+  # Defaults to the release name. The worker pods carry the label ate.dev/worker-pool=<name>.
+  name: ""
+  # Labels of the WorkerPool. The workerSelector of an actor matches them.
+  labels: {}
+  nodeSelector: {}
+  tolerations: []
+
+# The worker image. The tag names the Substrate release and must match the control plane.
+image:
+  repository: ghcr.io/agent-substrate/substrate/ateworker-gvisor
+  tag: v1.0.0
+  digest: sha256:f8987236c6256f58c4b2625e543b43f4ae4bdded6ee6821c03d966effb7c0f17
+
+# Sizing of the pool. Set it for each cluster.
+# A worker needs room beside the control-plane pods on the same nodes: the nodes must
+# have replicas * cpu and replicas * memory free after the control plane has its share.
+# The chart sets the limits equal to the requests, so each worker pod is Guaranteed.
+# Quote the values: cpu "1", memory "4Gi".
+workers:
+  replicas: 2
+  cpu: "1"
+  memory: 2Gi
+
+# The one sandbox class of the pool. microVM classes need nested virtualization and are out for now.
+sandboxClass: gvisor
+
+# SELinux nodes (RHEL family). Off by default. See the README, upstream issue #3597.
+selinux:
+  enabled: false
+
+# Prometheus Operator objects. Off by default: a cluster without the operator installs with it off.
+observability:
+  enabled: false
+  # The namespace of the control plane pods that the PodMonitors select.
+  controlPlaneNamespace: ate-system
+  # Labels that your Prometheus needs to select a PodMonitor, for example `release: prometheus`.
+  podMonitorLabels: {}
+  interval: 30s
+  # Each entry becomes one PodMonitor. `app` is the app label of the pods, `port` the name of a container port.
+  components:
+    - {name: ate-api-server, app: ate-api-server, port: prometheus, path: /metrics}
+    - {name: atelet, app: atelet, port: prometheus, path: /metrics}
+    - {name: ate-controller, app: ate-controller, port: metrics, path: /metrics}
+    - {name: atenet-router, app: atenet-router, port: envoy-metrics, path: /stats/prometheus}
+    - {name: atenet-egress, app: atenet-egress, port: envoy-metrics, path: /stats/prometheus}
+  # Grafana dashboards. Each key is a file name, each value the dashboard JSON. Upstream ships none.
+  dashboards: {}
+  dashboardLabel: grafana_dashboard

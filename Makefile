@@ -80,7 +80,12 @@ image:
 # It then does the same for the storage patch that the chart generates for each
 # ci values file. The backend must appear twice (the plugin sidecar of
 # ate-api-server and of atelet), the GCS default must be gone, and the keys must
-# appear only with the s3-compatible profile. Needs helm and awk on the host.
+# appear only with the s3-compatible profile. It last renders the Postgres sizing
+# patch with the default values and with changed values, and applies it to the
+# real postgres manifest with the command that the chart gives the Job (read from
+# helm template, so a drift fails here): the requests, the limits and the volume
+# claim must show the numbers. With no StatefulSet named postgres, it must fail.
+# Needs helm and awk on the host.
 test-image: image
 	docker run --rm --entrypoint sh -v "$(CURDIR)/charts/substrate-install/patches:/patches:ro" "$(IMAGE)" -euc '\
 	  mkdir /tmp/work && cp -a /opt/substrate/. /tmp/work/ && \
@@ -112,6 +117,34 @@ test-image: image
 	    test "$$(grep -c "name: AWS_ENDPOINT_URL$$" /tmp/out.yaml)" -eq $$keys && \
 	    test "$$(grep -c "name: AWS_ACCESS_KEY_ID$$" /tmp/out.yaml)" -eq $$keys && \
 	    echo "storage profile $$PROFILE: backend set on both plugin sidecars"' || exit 1; \
+	done
+	for case in default changed renamed; do \
+	  case $$case in \
+	    default|renamed) sets=""; req='cpu: "2" memory: 1Gi'; lim='cpu: "16" memory: 2Gi'; storage=500Gi;; \
+	    changed) sets="--set postgres.resources.requests.cpu=500m --set postgres.resources.requests.memory=512Mi --set-string postgres.resources.limits.cpu=4 --set postgres.resources.limits.memory=3Gi --set postgres.storage=5Gi"; req='cpu: 500m memory: 512Mi'; lim='cpu: "4" memory: 3Gi'; storage=5Gi;; \
+	  esac; \
+	  dir=build/postgres-$$case; mkdir -p "$$dir/patches/30-postgres-sizing" "$$dir/pg-build"; \
+	  cp -r charts/substrate-install/patches/. "$$dir/patches/"; \
+	  helm template r charts/substrate-install -f charts/substrate-install/ci/aws-values.yaml $$sets -s templates/configmap.yaml > "$$dir/configmap.yaml"; \
+	  awk '/^  patch-30-postgres-sizing: /{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' "$$dir/configmap.yaml" > "$$dir/patches/30-postgres-sizing/kustomization.yaml"; \
+	  awk '/^  pg-build: /{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' "$$dir/configmap.yaml" > "$$dir/pg-build/kustomization.yaml"; \
+	  cmd=$$(helm template r charts/substrate-install -f charts/substrate-install/ci/aws-values.yaml $$sets -s templates/job.yaml | awk '/name: patch-postgres/{f=1} f&&/command:/{c=1;next} c&&/^ +- /{sub(/^ +- /,"");print;next} c{exit}'); \
+	  test -n "$$cmd" || { echo "no patch-postgres command in the Job"; exit 1; }; \
+	  docker run --rm --user 0 --entrypoint sh -e CASE=$$case -e REQ="$$req" -e LIM="$$lim" -e STORAGE="$$storage" -v "$(CURDIR)/$$dir:/in:ro" "$(IMAGE)" -euc '\
+	    mkdir /work && cp -a /opt/substrate/. /work/ && \
+	    mkdir /work/manifests/ate-install/patches /work/manifests/ate-install/pg-build && \
+	    cp -r /in/patches/. /work/manifests/ate-install/patches/ && \
+	    cp /in/pg-build/kustomization.yaml /work/manifests/ate-install/pg-build/ && \
+	    if [ "$$CASE" = renamed ]; then \
+	      sed -i "s/^  name: postgres\$$/  name: postgres-renamed/" /work/manifests/ate-install/postgres/postgres.yaml && \
+	      if "$$@"; then echo "the Job command passed although no StatefulSet is named postgres"; exit 1; fi && \
+	      echo "renamed StatefulSet: the Job command fails, as it must" && exit 0; \
+	    fi && \
+	    "$$@" && \
+	    flat=$$(tr -s " \n" " " < /work/manifests/ate-install/postgres/postgres.yaml) && \
+	    case "$$flat" in *"requests: $$REQ limits: $$LIM"*|*"limits: $$LIM requests: $$REQ"*) ;; *) echo "postgres sizing $$REQ / $$LIM not found"; exit 1;; esac && \
+	    case "$$flat" in *"storage: $$STORAGE "*) ;; *) echo "storage $$STORAGE not found"; exit 1;; esac && \
+	    echo "postgres sizing $$REQ / $$LIM, storage $$STORAGE: written over the postgres manifest by the command of the Job"' sh $$cmd || exit 1; \
 	done
 
 # Pushes the multi-arch install image and prints its digest. CI runs it on main only.

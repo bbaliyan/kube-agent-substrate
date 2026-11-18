@@ -1,0 +1,130 @@
+suite: substrate-install postgres sizing
+templates:
+  - templates/configmap.yaml
+  - templates/job.yaml
+values:
+  - ../ci/aws-values.yaml
+tests:
+  - it: defaults to the upstream v1.0.0 numbers
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'requests:\n\s+cpu: "2"\n\s+memory: 1Gi\n'
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'limits:\n\s+cpu: "16"\n\s+memory: 2Gi\n'
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage\n\s+value: 500Gi\n'
+
+  - it: targets the postgres stateful set and guards the container and the claim
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'kind: StatefulSet\n\s+name: postgres'
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'containers/0/name\n\s+value: postgres\n'
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'volumeClaimTemplates/0/metadata/name\n\s+value: data\n'
+
+  - it: changes the patch when the values change
+    template: templates/configmap.yaml
+    set:
+      postgres.resources.requests.cpu: 250m
+      postgres.resources.requests.memory: 512Mi
+      postgres.resources.limits.cpu: "2"
+      postgres.resources.limits.memory: 1Gi
+      postgres.storage: 1Gi
+    asserts:
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'requests:\n\s+cpu: 250m\n\s+memory: 512Mi\n'
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'limits:\n\s+cpu: "2"\n\s+memory: 1Gi\n'
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'requests/storage\n\s+value: 1Gi\n'
+
+  - it: builds the postgres manifest with the patch in a plain command, after the patch step
+    template: templates/job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: patch
+      - equal:
+          path: spec.template.spec.initContainers[2].name
+          value: patch-postgres
+      - equal:
+          path: spec.template.spec.initContainers[2].command
+          value:
+            - kustomize
+            - build
+            - --load-restrictor
+            - LoadRestrictionsNone
+            - /work/manifests/ate-install/pg-build
+            - -o
+            - /work/manifests/ate-install/postgres/postgres.yaml
+      - notContains:
+          path: spec.template.spec.initContainers[1].command
+          content: ../patches/30-postgres-sizing
+
+  - it: holds the postgres build kustomization in the config map
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["pg-build"]
+          pattern: 'resources:[\s\S]+?[\s\S]*?\.\./postgres/postgres\.yaml[\s\S]*?components:[\s\S]*?\.\./patches/30-postgres-sizing'
+
+  - it: sizes the container with a patch that has no target, so a renamed StatefulSet fails the build
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-30-postgres-sizing"]
+          pattern: 'patches:[\s\S]*?- patch: [\s\S]*?kind: StatefulSet'
+
+  - it: rejects a CPU that is not a number or millicores
+    template: templates/configmap.yaml
+    set:
+      postgres.resources.requests.cpu: lots
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a CPU of zero
+    template: templates/configmap.yaml
+    set:
+      postgres.resources.requests.cpu: "0"
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a CPU of zero millicores
+    template: templates/configmap.yaml
+    set:
+      postgres.resources.limits.cpu: 0m
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a memory size with a bad unit
+    template: templates/configmap.yaml
+    set:
+      postgres.resources.limits.memory: 2GB
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a storage size with no unit
+    template: templates/configmap.yaml
+    set:
+      postgres.storage: "500"
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown postgres value
+    template: templates/configmap.yaml
+    set:
+      postgres.replicas: 3
+    asserts:
+      - failedTemplate: {}

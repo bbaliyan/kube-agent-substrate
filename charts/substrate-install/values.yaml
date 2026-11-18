@@ -49,6 +49,22 @@ storage:
         accessKeyRemoteKey: ""
         secretKeyRemoteKey: ""
 
+# The bundled control plane Postgres. Upstream v1.0.0 hardcodes these numbers
+# in manifests/ate-install/postgres/postgres.yaml, and the chart patches them
+# before the deploy (see the README). The defaults are the upstream numbers.
+postgres:
+  resources:
+    requests:
+      cpu: "2"
+      memory: 1Gi
+    limits:
+      cpu: "16"
+      memory: 2Gi
+  # Size of the data volume. The headroom keeps WAL churn from filling the
+  # volume. A volume claim of a StatefulSet cannot change on a running cluster:
+  # set this before the first install (see the README).
+  storage: 500Gi
+
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.
 env: []

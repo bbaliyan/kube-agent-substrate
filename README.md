@@ -31,9 +31,10 @@ The `config` value is the body of the upstream `SubstrateInstall` document. The 
 
 1. The `seed` init container copies the checkout from the image to a writable directory.
 2. The `patch` init container adds each patch to the kustomization in that copy.
-3. The `deploy` container runs `ate-setup deploy ate-system` in the copy.
+3. The `patch-postgres` init container renders the Postgres sizing patch over the Postgres manifest in that copy (see Postgres sizing).
+4. The `deploy` container runs `ate-setup deploy ate-system` in the copy.
 
-Kubernetes finishes both init containers before the `deploy` container starts. The patches therefore always apply before the deploy, and a sync never brings back the upstream defaults. A chart unit test and `make test-image` check this.
+Kubernetes finishes the init containers before the `deploy` container starts. The patches therefore always apply before the deploy, and a sync never brings back the upstream defaults. A chart unit test and `make test-image` check this.
 
 The Job reads its kubeconfig from a file that names the service account of the pod. The chart creates the service account. It binds the `cluster-admin` role, because the install creates cluster roles and an account can only grant what it holds. Set `rbac.clusterRole` to use another role.
 
@@ -83,6 +84,28 @@ The pods read the node credentials through the instance metadata service (IMDS).
 Add one lifecycle rule to the bucket: abort incomplete multipart uploads after a few days. Do not add a blanket expiry rule for objects. A suspended actor keeps its state in a snapshot object, and that state can rest for months. An expiry rule would delete it.
 
 In v1.0.0 the sidecar of `ate-api-server` deletes snapshots that nothing refers to. Objects that a failed checkpoint upload leaves behind are not removed (upstream issue #610). They need a separate cleanup that this repo does not have.
+
+### Postgres sizing
+
+Upstream hardcodes the bundled control plane Postgres: a 2 CPU and 1 GiB request, a 16 CPU and 2 GiB limit and a 500 GiB volume. A small node cannot schedule that next to the other control plane pods. The `postgres` values set the numbers, and the defaults are the upstream numbers:
+
+| Value | Default | Meaning |
+|---|---|---|
+| `postgres.resources.requests.cpu` | `"2"` | CPU request, such as `"2"` or `250m` |
+| `postgres.resources.requests.memory` | `1Gi` | Memory request |
+| `postgres.resources.limits.cpu` | `"16"` | CPU limit |
+| `postgres.resources.limits.memory` | `2Gi` | Memory limit |
+| `postgres.storage` | `500Gi` | Size of the data volume. The size also holds the WAL, so a full `pg_wal` cannot drop every connection |
+
+Write the CPU and memory values as strings. The schema rejects other forms, unknown keys and zero. The chart generates the patch `30-postgres-sizing`. `ate-setup` applies the Postgres manifest on its own, outside the kustomization that the `patch` container edits. The `patch-postgres` container therefore builds that manifest with the patch and writes the result back over the manifest in the copy, before the deploy. The merge patch has no target. If no StatefulSet named `postgres` exists, the build fails and so does the install. The patch changes only the `postgres` container and its `data` volume claim. A `test` operation stops the install if upstream moves either one.
+
+Three limits:
+
+- The volume claim of a StatefulSet cannot change on a running cluster (see upstream #3691), so a new `postgres.storage` fails on a cluster that is installed. Set the size before the first install. To resize later, delete the StatefulSet with `--cascade=orphan`, grow the claim by hand if the storage class allows it, and run the install again.
+- With `config.clusterSize: size10`, `ate-setup` sets the CPU and memory of the container itself, after this patch. Only `postgres.storage` still applies.
+- The kind install profile of `ate-setup` (`kind: true`) reads `kind/postgres` and not this manifest, and that overlay sets the CPU and the storage again. The patch does not apply there. The chart sets no kind profile, so this matters only if you set it through `env`.
+
+`make test-image` runs the command that the chart gives the Job on the real v1.0.0 manifest, with the default values and with changed values, and verifies the requests, the limits and the claim. It also verifies that the command fails when no StatefulSet is named `postgres`.
 
 ### Publish the image
 
@@ -338,7 +361,7 @@ The test does these steps, in order:
 11. It changes only the egress rules and verifies that the policy updates in place.
 12. It deploys a minimal Prometheus and the `substrate-idle-suspend` chart, and verifies that a busy actor stays, a failing signal query suspends nothing, an idle actor is suspended and the next request resumes it. See "Suspend idle actors".
 
-The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. A kind node with 4 GiB of memory and 2 CPUs is enough: it peaked at 4.2 GiB, including page cache, with no OOM kill.
+The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. The pods of the finished test request 3510m CPU and 3650Mi of memory, with the small Postgres numbers of `install-values.yaml`. The test fails if they request more than 4 CPUs, the size of a GitHub runner. It passed on a kind node capped at 4 CPUs and 8 GiB (485 seconds, no OOM kill) and on the runner (508 seconds).
 
 The test does not cover:
 
@@ -382,6 +405,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
 | Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
 | `--preview` in the registration Job, because the actor chart sets a snapshot location in every template and the server forbids it without the client flag | none known | The flag, once the actor chart leaves the location out |
+| Postgres sizing patch `30-postgres-sizing`: the chart sets the requests, limits and volume size of the bundled Postgres, because upstream hardcodes 2 CPU / 1 GiB requests, 16 CPU / 2 GiB limits and 500 Gi | #3167 (`--component`) plus #3168 (sizing contract) | The generated patch, the `patch-postgres` init container and the `postgres` values, once upstream offers both |
 
 ## License
 

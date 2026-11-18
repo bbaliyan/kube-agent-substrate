@@ -1,5 +1,6 @@
 {{- $image := include "substrate-install.image" . -}}
 {{- $names := include "substrate-install.patchNames" . | fromJsonArray -}}
+{{- $baseNames := include "substrate-install.basePatchNames" . | fromJsonArray -}}
 {{- $patchDir := "/work/manifests/ate-install/patches" -}}
 apiVersion: batch/v1
 kind: Job
@@ -51,7 +52,7 @@ spec:
             - edit
             - add
             - component
-            {{- range $names }}
+            {{- range $baseNames }}
             - ../patches/{{ . }}
             {{- end }}
           securityContext:
@@ -59,6 +60,26 @@ spec:
           volumeMounts:
             - {name: work, mountPath: /work}
             - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
+        # Step 3: size the bundled Postgres. ate-setup applies postgres/postgres.yaml
+        # on its own, outside the base kustomization, so step 2 cannot reach it. Build
+        # that manifest with the patch and write it back over itself. The build fails if
+        # the patch finds no StatefulSet named postgres.
+        - name: patch-postgres
+          image: {{ $image }}
+          command:
+            - kustomize
+            - build
+            - --load-restrictor
+            - LoadRestrictionsNone
+            - /work/manifests/ate-install/pg-build
+            - -o
+            - /work/manifests/ate-install/postgres/postgres.yaml
+          securityContext:
+            {{- include "substrate-install.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
+            - {name: pg-build, mountPath: /work/manifests/ate-install/pg-build, readOnly: true}
       containers:
         - name: deploy
           image: {{ $image }}
@@ -82,6 +103,11 @@ spec:
             - {name: config, mountPath: /config, readOnly: true}
             - {name: tmp, mountPath: /tmp}
       volumes:
+        - name: pg-build
+          configMap:
+            name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}
+            items:
+              - {key: pg-build, path: kustomization.yaml}
         - name: work
           emptyDir: {}
         - name: tmp

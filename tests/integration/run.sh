@@ -271,8 +271,8 @@ kubectl -n harness-workers run policy-probe --image=probe --dry-run=server -o js
   jq -e '.spec.securityContext.seLinuxOptions == null' >/dev/null || fail "the SELinux policy patched a pod without the worker label"
 install_workers
 wait_for 600 "the worker pool is ready" kubectl -n harness-workers wait --for=condition=Ready pod --all --timeout=5s
-test "$(kubectl -n harness-workers get pod -l ate.dev/worker-pool=counter -o json | jq '[.items[] | select(.spec.securityContext.seLinuxOptions.type == "spc_t")] | length')" = 1 ||
-  fail "the worker pod does not carry spc_t"
+test "$(kubectl -n harness-workers get pod -l ate.dev/worker-pool=counter -o json | jq '[.items[] | select(.spec.securityContext.seLinuxOptions.type == "spc_t")] | length')" = 2 ||
+  fail "the worker pods do not carry spc_t"
 
 # --- Actor -------------------------------------------------------------------
 

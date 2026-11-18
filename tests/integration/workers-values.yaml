@@ -6,8 +6,9 @@ pool:
   labels:
     workload: counter
 workers:
-  # One worker: the actor asks for 1 CPU and the node has 2. The chart sets requests equal to limits.
-  replicas: 1
+  # Two workers: the golden snapshot holds one while the actor runs on the other.
+  # The actor asks for 1 CPU, and a worker must offer that, so cpu is "1".
+  replicas: 2
   cpu: "1"
   memory: 1Gi
 selinux:

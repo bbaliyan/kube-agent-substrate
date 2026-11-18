@@ -6,8 +6,9 @@ pool:
   labels:
     workload: counter
 workers:
-  replicas: 2
-  cpu: 500m
+  # One worker: the actor asks for 1 CPU and the node has 2. The chart sets requests equal to limits.
+  replicas: 1
+  cpu: "1"
   memory: 1Gi
 selinux:
   enabled: true

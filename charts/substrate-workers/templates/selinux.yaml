@@ -6,6 +6,8 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicy
 metadata:
   name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   labels:
     {{- include "substrate-workers.labels" . | nindent 4 }}
 spec:
@@ -24,18 +26,19 @@ spec:
         operations: ["CREATE"]
         resources: ["pods"]
   mutations:
-    - patchType: JSONPatch
-      jsonPatch:
-        # The value of a JSONPatch is a JSON-encoded string. The parent object may not exist yet.
+    # A merge, so it works whether or not the pod already has a securityContext.
+    - patchType: ApplyConfiguration
+      applyConfiguration:
         expression: >-
-          has(object.spec.securityContext)
-          ? [JSONPatch{op: "add", path: "/spec/securityContext/seLinuxOptions", value: "{\"type\":\"spc_t\"}"}]
-          : [JSONPatch{op: "add", path: "/spec/securityContext", value: "{\"seLinuxOptions\":{\"type\":\"spc_t\"}}"}]
+          Object{spec: Object.spec{securityContext: Object.spec.securityContext{
+          seLinuxOptions: Object.spec.securityContext.seLinuxOptions{type: "spc_t"}}}}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding
 metadata:
   name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   labels:
     {{- include "substrate-workers.labels" . | nindent 4 }}
 spec:

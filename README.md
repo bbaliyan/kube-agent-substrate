@@ -132,9 +132,11 @@ Use a second pool, with its own CPU model, for other hardware.
 
 On nodes that enforce SELinux (the RHEL family), worker pods run as `container_t`. They cannot write the `/var/lib/ate` host path, and the `ateworker` exits at start (upstream issue #3597, open). The WorkerPool has no `securityContext` field and the control plane creates the pods, so only admission can fix it.
 
-Set `selinux.enabled` to `true`. The chart then renders a `MutatingAdmissionPolicy` and its binding. They set the SELinux type `spc_t` on the pods that carry the label `ate.dev/worker-pool=<pool name>`, in the release namespace. No other pod is matched. The policy uses an `objectSelector` and no match conditions. It has `reinvocationPolicy: IfNeeded` and `failurePolicy: Fail`. The JSON patch value is a JSON-encoded string.
+Set `selinux.enabled` to `true`. The chart then renders a `MutatingAdmissionPolicy` and its binding. They set the SELinux type `spc_t` on the pods that carry the label `ate.dev/worker-pool=<pool name>`, in the release namespace. No other pod is matched. The policy uses an `objectSelector` and no match conditions. It has `reinvocationPolicy: IfNeeded` and `failurePolicy: Fail`. The mutation is an `ApplyConfiguration` merge, so it works when the pod has no `securityContext` yet. A `JSONPatch` with a JSON string as its value does not work: the API server inserts the string as it is and the pod is rejected.
 
 The switch is off by default. Verify that your nodes need it before you turn it on.
+
+A policy takes a few seconds to become active, and a pod that exists before then stays unpatched. The policy objects carry the Argo CD sync wave `-1`, so Argo CD applies them before the pool. With Helm, install the chart with `workers.replicas` set to `0`, wait a few seconds, then set the real value. If a worker pod started without the patch, delete the pod.
 
 Minimum version: Kubernetes 1.36. The API is `admissionregistration.k8s.io/v1` `MutatingAdmissionPolicy`, which is GA and on by default from 1.36. On 1.34 and 1.35 it is `v1beta1` behind the feature gate `MutatingAdmissionPolicy` and the runtime-config of that API, and the chart does not render that version.
 

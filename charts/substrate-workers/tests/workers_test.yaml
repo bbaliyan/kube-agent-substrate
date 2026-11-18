@@ -94,7 +94,7 @@ tests:
       - notExists:
           path: spec.matchConditions
       - matchRegex:
-          path: spec.mutations[0].jsonPatch.expression
+          path: spec.mutations[0].applyConfiguration.expression
           pattern: 'spc_t'
 
   - it: renders no monitoring object by default

@@ -258,11 +258,21 @@ install_chart >"$logs/helm-install.log" 2>&1 || fail "the install did not finish
 kubectl -n ate-system get pods >"$logs/pods-after-install.txt"
 
 step "Start the sample worker pool"
-helm upgrade --install substrate-workers charts/substrate-workers -n harness-workers --create-namespace   -f "$here/workers-values.yaml" >"$logs/helm-workers.log" 2>&1 || fail "the substrate-workers chart did not install"
+install_workers() {
+  helm upgrade --install substrate-workers charts/substrate-workers -n harness-workers --create-namespace     -f "$here/workers-values.yaml" "$@" >>"$logs/helm-workers.log" 2>&1 || fail "the substrate-workers chart did not install"
+}
+# The policy takes a moment to become active, and pods that exist before it stay unpatched.
+# So install it with no workers, verify it on a server-side dry run, then add the workers.
+# kind does not enforce SELinux: the test verifies the patch, not that it fixes the hostPath.
+install_workers --set workers.replicas=0
+wait_for 120 "the SELinux policy patches a pod with the worker label" bash -c   'kubectl -n harness-workers run policy-probe --image=probe --dry-run=server -o json -l ate.dev/worker-pool=counter |
+    jq -e ".spec.securityContext.seLinuxOptions.type == \"spc_t\""'
+kubectl -n harness-workers run policy-probe --image=probe --dry-run=server -o json |
+  jq -e '.spec.securityContext.seLinuxOptions == null' >/dev/null || fail "the SELinux policy patched a pod without the worker label"
+install_workers
 wait_for 600 "the worker pool is ready" kubectl -n harness-workers wait --for=condition=Ready pod --all --timeout=5s
-# kind does not enforce SELinux. The test verifies that the policy patched the pods, not that it fixes the hostPath.
-test "$(kubectl -n harness-workers get pod -l ate.dev/worker-pool=counter -o json | jq '[.items[] | select(.spec.securityContext.seLinuxOptions.type == "spc_t")] | length')" = 2 ||
-  fail "the SELinux policy did not set spc_t on both worker pods"
+test "$(kubectl -n harness-workers get pod -l ate.dev/worker-pool=counter -o json | jq '[.items[] | select(.spec.securityContext.seLinuxOptions.type == "spc_t")] | length')" = 1 ||
+  fail "the worker pod does not carry spc_t"
 
 # --- Actor -------------------------------------------------------------------
 

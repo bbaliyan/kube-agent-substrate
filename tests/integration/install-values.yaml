@@ -8,9 +8,12 @@ storage:
     pathStyle: true
     credentials:
       secretName: snapshot-store-keys
+# The actor template names its own snapshot location, which needs this preview gate.
+# The chart has no setting for it, so the environment of ate-setup carries it.
+env:
+  - name: ATE_PREVIEW
+    value: PerTemplateSnapshotLocation
 config:
-  # The actor template names its own snapshot location, which needs this gate.
-  preview: PerTemplateSnapshotLocation
   ateapi:
     authz:
       # The registration Job creates atespaces, so its account must be a bootstrap owner.

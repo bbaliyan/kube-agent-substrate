@@ -23,7 +23,7 @@ To install:
 3. Set `image.digest` to the digest of the published install image.
 4. Install the chart with your values file, or sync it with Argo CD.
 
-The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images`, `sandboxClasses` and `context`. It also derives `storage.snapshotLocation` and `storage.bucketName` from the storage profile (see Storage profiles). The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`.
+The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images`, `sandboxClasses` and `context`. It also derives `storage.snapshotLocation` and `storage.bucketName` from the storage profile (see Storage profiles). The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`. `ate-setup` also refuses to deploy without a credential provider setting. Set `config.atenet.egress.credentialProvider` to `{"name":"k8s.io"}` for the bundled Secrets provider, or to `{"enabled":false}` to turn off egress credential injection. The `ci` values files do not set it.
 
 ### How the Job works
 
@@ -101,10 +101,11 @@ An ActorTemplate, an Actor and an EgressPolicy are not Kubernetes resources. The
 To register:
 
 1. Install the `substrate-actor` chart. It renders one ConfigMap for each actor.
-2. Add the service account of the Job to the bootstrap owners of the control plane. The Job creates atespaces, and only a global owner can. Append `system:serviceaccount:<namespace>:<release>-substrate-registration` to `config.ateapi.authz.bootstrapOwners` in the `substrate-install` values. Do not replace the list. A set list drops the default `ate-client` principal, which the upstream demos and `ate-setup` use. Add `system:serviceaccount:ate-system:ate-client` to the list if you still need it.
-3. Copy `charts/substrate-registration/ci/aws-values.yaml` or `onprem-values.yaml`. Use the same `snapshotStorageLocation` and `actors` as the actor release. One values file can serve both releases.
-4. Set `image.digest` to the digest of the published registration image.
-5. Install the chart with your values file, or sync it with Argo CD.
+2. Add the service account of the Job to the bootstrap owners of the control plane. The Job creates atespaces, and only a global owner can. Append `system:serviceaccount:<namespace>:<release>-substrate-registration` to `config.ateapi.authz.bootstrapOwners` in the `substrate-install` values. The value is one comma-separated string. Do not replace the list. A set list drops the default `ate-client` principal, which the upstream demos and `ate-setup` use. Add `system:serviceaccount:ate-system:ate-client` to the list if you still need it.
+3. Enable the preview gate `PerTemplateSnapshotLocation` on the control plane. The template of each actor names its snapshot location, and the server accepts that only with the gate. The `substrate-install` chart has no setting for it. Add the variable `ATE_PREVIEW` with the value `PerTemplateSnapshotLocation` to `env`. The Job passes `--preview` to `kubectl ate` for the same reason.
+4. Copy `charts/substrate-registration/ci/aws-values.yaml` or `onprem-values.yaml`. Use the same `snapshotStorageLocation` and `actors` as the actor release. One values file can serve both releases.
+5. Set `image.digest` to the digest of the published registration image.
+6. Install the chart with your values file, or sync it with Argo CD.
 
 ### How the Job works
 
@@ -177,7 +178,7 @@ The render lint is a quick lint. It runs `helm template` and `kubeconform` for e
 
 ### Integration test
 
-`make test-integration` is the main test of this repo. It needs Docker, `kubectl`, `helm`, `jq` and `curl`. It takes about 5 minutes on a warm Dev box. It is not part of `make test-commit`. The kind cluster, the registry and the files of a run are deleted when it ends. Set `KEEP_CLUSTER=1` to keep them.
+`make test-integration` is the main test of this repo. It needs Docker, `kubectl`, `helm`, `jq` and `curl`. It took 287 seconds on the Dev box with warm image layers. It is not part of `make test-commit`. The kind cluster, the registry and the files of a run are deleted when it ends. Set `KEEP_CLUSTER=1` to keep them.
 
 The test does these steps, in order:
 
@@ -193,7 +194,7 @@ The test does these steps, in order:
 10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
 11. It changes only the egress rules and verifies that the policy updates in place.
 
-The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. The test runs on the Dev box with `scripts/devbox-check <repo> test-integration`. On a kind node with less than 4 GiB of memory the install does not finish, so give the node 8 GiB.
+The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. The test runs on the Dev box with `scripts/devbox-check <repo> test-integration`. Give the kind node 8 GiB: `DEVBOX_KIND_MEMORY=8g DEVBOX_KIND_CPUS=4 scripts/devbox-check <repo> test-integration`. The node peaked at 7.7 GiB, including page cache, with no OOM kill. The Dev box default of 4 GiB was not tried.
 
 The test does not cover:
 
@@ -232,7 +233,9 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |
 | PodMonitors for clusters without the GKE `PodMonitoring` CRD (planned) | #2589 | The PodMonitors |
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
-| RustFS with large sparse multipart uploads (planned, unverified) | #3921 | The note, once a test shows it works |
+| RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
+| Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
+| Preview gate `PerTemplateSnapshotLocation` through `env`, and `--preview` in the registration Job, because the actor chart sets a snapshot location in every template | none known | The gate, once the install chart has a setting for it or the actor chart leaves the location out |
 
 ## License
 

@@ -202,7 +202,19 @@ wait "$build_install" || { tail -20 "$logs/build-install.log"; fail "the install
 wait "$build_registration" || { tail -20 "$logs/build-registration.log"; fail "the registration image build failed"; }
 wait "$build_counter" || { tail -20 "$logs/build-counter.log"; fail "the counter image build failed"; }
 digest_of() {
-  docker push "$push_base/$1:$substrate_tag" 2>&1 | tee -a "$logs/push.log" | sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*/\1/p' | tail -1
+  local try
+  for try in 1 2 3; do
+    if docker push "$push_base/$1:$substrate_tag" >"$logs/push-$1.log" 2>&1; then
+      cat "$logs/push-$1.log" >>"$logs/push.log"
+      sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*//p' "$logs/push-$1.log" | tail -1
+      return 0
+    fi
+    sleep 5
+  done
+  cat "$logs/push-$1.log" >>"$logs/push.log"
+  { docker ps -a --filter "name=$registry_name"; docker logs --tail 20 "$registry_name"; } >>"$logs/push.log" 2>&1 || true
+  tail -20 "$logs/push.log"
+  fail "docker push of $1 failed three times"
 }
 install_digest="$(digest_of substrate-install)"
 registration_digest="$(digest_of substrate-registration)"

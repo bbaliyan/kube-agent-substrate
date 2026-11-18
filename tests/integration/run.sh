@@ -259,7 +259,8 @@ kubectl -n ate-system get pods >"$logs/pods-after-install.txt"
 
 step "Start the sample worker pool"
 install_workers() {
-  helm upgrade --install substrate-workers charts/substrate-workers -n harness-workers --create-namespace     -f "$here/workers-values.yaml" "$@" >>"$logs/helm-workers.log" 2>&1 || fail "the substrate-workers chart did not install"
+  helm upgrade --install substrate-workers charts/substrate-workers -n harness-workers --create-namespace \
+    -f "$here/workers-values.yaml" "$@" >>"$logs/helm-workers.log" 2>&1 || fail "the substrate-workers chart did not install"
 }
 # The policy takes a moment to become active, and pods that exist before it stay unpatched.
 # So install it with no workers, verify it on a server-side dry run, then add the workers.

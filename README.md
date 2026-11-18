@@ -110,13 +110,13 @@ To run a pool:
 
 Sizing comes only from values. The chart sets the limits equal to the requests, so each worker pod is Guaranteed. A worker needs room beside the control-plane pods on the same nodes: after the control plane has its share, a node must have `cpu` and `memory` free for each worker that runs on it.
 
-The `workers` values size the pool only. The install pod and the control-plane Postgres are sized in the `substrate-install` values, not here.
+The `workers` values size the pool only. The install pod is sized in the `substrate-install` values. The control-plane database is not configurable yet: upstream sets its resources in the manifests, at 2 CPUs and 1 GiB of memory. On a small node, count these in the room that the control plane takes.
 
 ### One CPU model for each pool
 
 Use one CPU model in a WorkerPool. A gVisor golden snapshot is pinned to the CPU feature set of the worker that made the checkpoint (upstream issue #1657). A worker with another feature set cannot restore it.
 
-- AWS: do not mix instance types in a pool. Select one instance type with `pool.nodeSelector`, or use one node group for the pool.
+- AWS: do not mix instance types in a pool. One instance type can still span processor generations (an `m5` runs on Skylake or Cascade Lake). Use an instance family with a single processor generation, such as `m6i`, or pin the hardware in another way. Select it with `pool.nodeSelector`, or use one node group for the pool.
 - Proxmox: set a fixed VM CPU type, such as a named model. Do not use `host` on mixed hardware, because `host` passes the real features of each physical CPU.
 
 Use a second pool, with its own CPU model, for other hardware.
@@ -125,14 +125,14 @@ Use a second pool, with its own CPU model, for other hardware.
 
 - The Pod Certificate and ClusterTrustBundle APIs are on.
 - The cluster has a default StorageClass.
-- The namespaces `ate-system` and the pool namespace do not enforce the restricted Pod Security level. Workers need host paths and privileges that it blocks.
+- The namespace of the workers must use the `privileged` Pod Security level. The Baseline level blocks the host path volume and the `spc_t` SELinux type too. `ate-system` must not use the restricted level.
 - Nested virtualization is needed only for microVMs. They are out for now.
 
 ### SELinux nodes
 
 On nodes that enforce SELinux (the RHEL family), worker pods run as `container_t`. They cannot write the `/var/lib/ate` host path, and the `ateworker` exits at start (upstream issue #3597, open). The WorkerPool has no `securityContext` field and the control plane creates the pods, so only admission can fix it.
 
-Set `selinux.enabled` to `true`. The chart then renders a `MutatingAdmissionPolicy` and its binding. They set the SELinux type `spc_t` on the pods that carry the label `ate.dev/worker-pool=<pool name>`, in the release namespace. No other pod is matched. The policy uses an `objectSelector` and no match conditions. It has `reinvocationPolicy: IfNeeded` and `failurePolicy: Fail`. The mutation is an `ApplyConfiguration` merge, so it works when the pod has no `securityContext` yet. A `JSONPatch` with a JSON string as its value does not work: the API server inserts the string as it is and the pod is rejected.
+Set `selinux.enabled` to `true`. The chart then renders a `MutatingAdmissionPolicy` and its binding. They set the SELinux type `spc_t` on the pods that carry the label `ate.dev/worker-pool=<pool name>`, in the release namespace. No other pod is matched. The policy uses an `objectSelector` and no match conditions. It has `reinvocationPolicy: IfNeeded` and `failurePolicy: Fail`. The mutation is an `ApplyConfiguration` merge, so it works when the pod has no `securityContext` yet.
 
 The switch is off by default. Verify that your nodes need it before you turn it on.
 
@@ -144,7 +144,9 @@ Minimum version: Kubernetes 1.36. The API is `admissionregistration.k8s.io/v1` `
 
 Set `observability.enabled` to `true` to render PodMonitors and dashboard ConfigMaps. It is off by default. With it off, the chart renders no `monitoring.coreos.com` object or other provider CRD, so a cluster without the Prometheus Operator installs with it off. A unit test verifies this.
 
-Upstream sends its metrics over OTLP to a collector, not to a Prometheus scrape. Only some components also serve a Prometheus endpoint. The chart creates one PodMonitor for each of these, from `observability.components`: `ate-api-server`, `atelet`, `ate-controller` (a pull listener on port 8080, on only when the controller does not push metrics) and the Envoy metrics port of `atenet-router` and `atenet-egress`. Set `observability.podMonitorLabels` to the labels your Prometheus selects. Edit `components` if a port differs on your release.
+Upstream sends its metrics over OTLP to a collector, not to a Prometheus scrape. Only some components also serve a Prometheus endpoint. The chart creates one PodMonitor for each of these, from `observability.components`: `ate-api-server`, `atelet`, `ate-controller` (a pull listener on port 8080, on only when the controller does not push metrics) and the Envoy metrics port of `atenet-router` and `atenet-egress`. Set `observability.podMonitorLabels` to the labels your Prometheus selects. The router and egress components have two entries each: the Envoy port and the `metrics` port. Edit `components` if a port differs on your release.
+
+The PodMonitors select the control plane, not the pool. Each release with `observability.enabled` renders the same ones. Turn observability on in one release only.
 
 Upstream v1.0.0 ships no Grafana dashboard. Add your own in `observability.dashboards`: each key is a file name and each value is the dashboard JSON. The chart makes one ConfigMap for each, with the label `grafana_dashboard: "1"`. Change the label with `observability.dashboardLabel` to match your Grafana sidecar.
 
@@ -285,6 +287,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | Opt-in SELinux admission policy `selinux.enabled` in the `substrate-workers` chart: worker pods run as `container_t` on SELinux nodes and cannot write `/var/lib/ate`, and a WorkerPool has no `securityContext` | #3597 | The policy and the switch, once worker pods get the right SELinux type without admission |
 | Idle-suspend CronJob (planned) | #424, #483 | The CronJob, and use the upstream policy |
 | One CPU model for each WorkerPool, as a documented rule | #1657 | The rule |
+| The control-plane database resources are fixed in the upstream manifests (2 CPUs, 1 GiB) and no chart value sets them | none known | The note in the sizing section, once the install chart can set them |
 | Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |
 | PodMonitors for clusters without the GKE `PodMonitoring` CRD, behind `observability.enabled` in the `substrate-workers` chart | #2589 | The PodMonitors |
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |

@@ -97,12 +97,15 @@ tests:
           path: spec.mutations[0].applyConfiguration.expression
           pattern: 'spc_t'
 
-  - it: renders no monitoring object by default
-    templates:
-      - templates/observability.yaml
+  - it: renders no monitoring object or other provider CRD object by default
     asserts:
       - hasDocuments:
           count: 0
+        template: templates/observability.yaml
+      - notMatchRegex:
+          path: apiVersion
+          pattern: monitoring
+        template: templates/workerpool.yaml
 
   - it: renders one PodMonitor for each component and one ConfigMap for each dashboard when on
     template: templates/observability.yaml
@@ -114,7 +117,7 @@ tests:
           substrate.json: '{"title":"S"}'
     asserts:
       - hasDocuments:
-          count: 6
+          count: 8
       - isKind:
           of: PodMonitor
         documentIndex: 0
@@ -128,21 +131,11 @@ tests:
         documentIndex: 0
       - isKind:
           of: ConfigMap
-        documentIndex: 5
+        documentIndex: 7
       - equal:
           path: metadata.labels.grafana_dashboard
           value: "1"
-        documentIndex: 5
-
-  - it: renders no provider CRD object with the defaults
-    asserts:
-      - notMatchRegex:
-          path: apiVersion
-          pattern: "monitoring"
-        template: templates/workerpool.yaml
-      - hasDocuments:
-          count: 0
-        template: templates/observability.yaml
+        documentIndex: 7
 
   - it: rejects an image without a digest
     template: templates/workerpool.yaml
@@ -158,9 +151,24 @@ tests:
     asserts:
       - failedTemplate: {}
 
-  - it: rejects an unknown sandbox class and an unknown key
+  - it: rejects an unknown sandbox class
     template: templates/workerpool.yaml
     set:
       sandboxClass: firecracker
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown key at each level
+    template: templates/workerpool.yaml
+    set:
+      workers.gpu: 1
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level key and an unknown observability key
+    template: templates/workerpool.yaml
+    set:
+      extra: true
+      observability.extra: true
     asserts:
       - failedTemplate: {}

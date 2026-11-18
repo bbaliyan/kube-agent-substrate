@@ -45,6 +45,8 @@ observability:
     - {name: ate-controller, app: ate-controller, port: metrics, path: /metrics}
     - {name: atenet-router, app: atenet-router, port: envoy-metrics, path: /stats/prometheus}
     - {name: atenet-egress, app: atenet-egress, port: envoy-metrics, path: /stats/prometheus}
+    - {name: atenet-router-metrics, app: atenet-router, port: metrics, path: /metrics}
+    - {name: atenet-egress-metrics, app: atenet-egress, port: metrics, path: /metrics}
   # Grafana dashboards. Each key is a file name, each value the dashboard JSON. Upstream ships none.
   dashboards: {}
   dashboardLabel: grafana_dashboard

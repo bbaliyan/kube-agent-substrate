@@ -64,6 +64,19 @@ resources:
 {{- end }}
 {{- end -}}
 
+{{- /* The ports of an egress rule, as a JSON list. The server fills in the port of an http rule (80) and of an https rule (443). The policy that the chart renders must hold the same list, or the registration Job finds a difference and updates the policy on every run. A tlsPassthrough rule has no default. */ -}}
+{{- define "substrate-actor.ports" -}}
+{{- if .ports -}}
+{{- toJson .ports -}}
+{{- else if eq .protocol "http" -}}
+[80]
+{{- else if eq .protocol "https" -}}
+[443]
+{{- else -}}
+[]
+{{- end -}}
+{{- end -}}
+
 {{- define "substrate-actor.egress" -}}
 metadata:
   atespace: {{ .actor.atespace }}
@@ -72,7 +85,7 @@ rules:
 {{- range .actor.egress }}
 - {{ .protocol }}:
     hostnames: {{ toJson .hostnames }}
-{{- with .ports }}
+{{- with include "substrate-actor.ports" . | fromJsonArray }}
     ports:
       numbers: {{ toJson . }}
 {{- end }}
@@ -99,7 +112,7 @@ rules:
 {{- range .actor.egress -}}
 {{- $protocol := .protocol -}}
 {{- $rule := dict "hostnames" .hostnames -}}
-{{- with .ports }}{{- $_ := set $rule "ports" (dict "numbers" .) -}}{{- end -}}
+{{- with include "substrate-actor.ports" . | fromJsonArray }}{{- $_ := set $rule "ports" (dict "numbers" .) -}}{{- end -}}
 {{- with .credential -}}
 {{- $header := dict "header" .header "credentialUri" .credentialUri -}}
 {{- with .prefix }}{{- $_ := set $header "prefix" . -}}{{- end -}}

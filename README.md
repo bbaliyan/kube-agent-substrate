@@ -23,7 +23,7 @@ To install:
 3. Set `image.digest` to the digest of the published install image.
 4. Install the chart with your values file, or sync it with Argo CD.
 
-The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images`, `sandboxClasses` and `context`. It also derives `storage.snapshotLocation` and `storage.bucketName` from the storage profile (see Storage profiles). The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`.
+The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images`, `sandboxClasses` and `context`. It also derives `storage.snapshotLocation` and `storage.bucketName` from the storage profile (see Storage profiles). The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`. `ate-setup` also refuses to deploy without a credential provider setting. Set `config.atenet.egress.credentialProvider` to `{"name":"k8s.io"}` for the bundled Secrets provider, or to `{"enabled":false}` to turn off egress credential injection. The `ci` values files do not set it.
 
 ### How the Job works
 
@@ -101,10 +101,11 @@ An ActorTemplate, an Actor and an EgressPolicy are not Kubernetes resources. The
 To register:
 
 1. Install the `substrate-actor` chart. It renders one ConfigMap for each actor.
-2. Add the service account of the Job to the bootstrap owners of the control plane. The Job creates atespaces, and only a global owner can. Append `system:serviceaccount:<namespace>:<release>-substrate-registration` to `config.ateapi.authz.bootstrapOwners` in the `substrate-install` values. Do not replace the list. A set list drops the default `ate-client` principal, which the upstream demos and `ate-setup` use. Add `system:serviceaccount:ate-system:ate-client` to the list if you still need it.
-3. Copy `charts/substrate-registration/ci/aws-values.yaml` or `onprem-values.yaml`. Use the same `snapshotStorageLocation` and `actors` as the actor release. One values file can serve both releases.
-4. Set `image.digest` to the digest of the published registration image.
-5. Install the chart with your values file, or sync it with Argo CD.
+2. Add the service account of the Job to the bootstrap owners of the control plane. The Job creates atespaces, and only a global owner can. Append `system:serviceaccount:<namespace>:<release>-substrate-registration` to `config.ateapi.authz.bootstrapOwners` in the `substrate-install` values. The value is one comma-separated string. Do not replace the list. A set list drops the default `ate-client` principal, which the upstream demos and `ate-setup` use. Add `system:serviceaccount:ate-system:ate-client` to the list if you still need it.
+3. Enable the preview gate `PerTemplateSnapshotLocation` on the control plane. The template of each actor names its snapshot location, and the server accepts that only with the gate. Set `config.preview` to `PerTemplateSnapshotLocation` in the `substrate-install` values. The Job passes `--preview` to `kubectl ate` for the same reason.
+4. Copy `charts/substrate-registration/ci/aws-values.yaml` or `onprem-values.yaml`. Use the same `snapshotStorageLocation` and `actors` as the actor release. One values file can serve both releases.
+5. Set `image.digest` to the digest of the published registration image.
+6. Install the chart with your values file, or sync it with Argo CD.
 
 ### How the Job works
 
@@ -113,7 +114,7 @@ To register:
 3. It creates the atespace if it is missing.
 4. If the actor does not exist, it creates the template and the actor.
 5. If the actor is `ACTOR_STATE_DELETING`, an earlier delete did not finish. It runs the delete again and creates the actor.
-6. If the actor uses an older template and is `ACTOR_STATE_SUSPENDED`, it moves the actor with `kubectl ate update actor --template`. The actor keeps its state. If the server refuses the update, for example because the snapshot location changed, the Job deletes the actor and creates it again. The state is lost, and the log says so.
+6. If the actor uses an older template and is `ACTOR_STATE_SUSPENDED`, it moves the actor with `kubectl ate update actor --template`. The actor keeps its identity. Its memory and root filesystem restart from the new template, because the new template defines a new process. If the server refuses the update, for example because the snapshot location changed, the Job deletes the actor and creates it again. The state is lost, and the log says so.
 7. If the actor uses an older template and is `ACTOR_STATE_CRASHED`, it deletes the actor and creates it again.
 8. If the actor uses an older template and is in any other state, it is busy. The Job leaves it alone.
 9. It brings the egress policy to the rules in the ConfigMap. It creates, updates in place, or deletes the policy, so an egress change never recreates the actor.
@@ -144,12 +145,12 @@ Port-forward RBAC cannot name a pod, so the Role covers every pod in the namespa
 
 ### What the kind harness verifies
 
-The kind harness is a later ticket. It must show on a real control plane:
+`make test-integration` runs the registration Job on a real control plane. See "Integration test" below. It verifies:
 
 - A sample actor registers: the atespace, the template, the actor and the egress policy exist.
 - A second run changes nothing.
-- A changed template moves a suspended actor in place and keeps its state, and the Job fails on a resumed actor, then moves it after suspend.
-- An egress-only change updates the live policy in place. The real protojson output of `get egress-policy` must match the rules that the chart renders, or the Job updates the policy on every run.
+- A changed template moves a suspended actor in place with the same identity, and the Job fails on a resumed actor, then moves it after suspend.
+- An egress-only change updates the live policy in place, and a run after it changes nothing. The real protojson output of `get egress-policy` matches the rules that the chart renders.
 - The Job authenticates with its own token and the RBAC above, with no extra grant.
 
 ### Publish the registration image
@@ -175,11 +176,40 @@ Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the ins
 
 The render lint is a quick lint. It runs `helm template` and `kubeconform` for each file in `charts/*/ci/`: the `aws` and `onprem` profiles, each with one actor and with several. It does not prove that an install works.
 
+### Integration test
+
+`make test-integration` is the main test of this repo. It needs Docker, `kubectl`, `helm`, `jq` and `curl`. It took 385 seconds on a Linux host with 16 cores and warm image layers. It is not part of `make test-commit`. The kind cluster, the registry and the files of a run are deleted when it ends. Set `KEEP_CLUSTER=1` to keep them.
+
+The test does these steps, in order:
+
+1. It builds the install image, the registration image and the counter demo actor image from this repo and the pinned Substrate release. It pushes them to a registry that it starts next to the cluster. The charts pin the images by their pushed digest.
+2. It creates one kind node with the cluster settings that Substrate needs: the pod certificate and cluster trust bundle APIs.
+3. It deploys RustFS and creates the snapshot bucket. RustFS 1.0.x cannot create a bucket itself, so a Job with the pinned AWS CLI image does it. The keys are fixed test values in a Secret that the test creates.
+4. It installs the `substrate-install` chart with the `s3-compatible` storage profile and waits for the install Job to finish.
+5. It starts a worker pool, installs the `substrate-actor` chart and the `substrate-registration` chart for one actor, and checks that the actor registers.
+6. It resumes the actor and sends it requests through `kubectl ate proxy`. It suspends the actor, drops its node-local snapshot with a revert and resumes it again. The test verifies that the memory and root filesystem counters continue and that atelet downloaded the snapshot from RustFS. Then it suspends the actor. The test fails if the actor is not `ACTOR_STATE_RUNNING` after a resume or not `ACTOR_STATE_SUSPENDED` after a suspend.
+7. It runs the install Job and the registration Job again, and verifies that nothing changes.
+8. It verifies that the live egress policy equals the rules that the chart renders.
+9. It changes the template and verifies that the suspended actor moves in place with the same identity and that its counters restart from the new template. The chart has no durable volumes, so the test does not verify that a volume survives the move.
+10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
+11. It changes only the egress rules and verifies that the policy updates in place.
+
+The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. A kind node with 4 GiB of memory and 2 CPUs is enough: it peaked at 4.2 GiB, including page cache, with no OOM kill.
+
+The test does not cover:
+
+- IAM-based S3 access. It uses static keys against RustFS. The `aws` profile is checked only by the render tests and by `make test-image`.
+- SELinux enforcement. The kind node does not enforce it, and the repo has no SELinux policy yet.
+- The CPU model of a Proxmox worker pool and the restore of a golden snapshot on another CPU. The cluster has one node.
+- microVMs. The install uses the gVisor class only.
+- Credential injection. The test sets the credential provider to off. The sample actor has egress rules without credentials.
+- The webhook shim, the ingress and the External Secrets resources of the `substrate-actor` chart.
+- Several actors, several nodes and the `arm64` architecture. The test runs the architecture of the host.
+- Registry and object store TLS. The test uses plain HTTP inside the cluster.
+
 Not covered by any check in this repo:
 
-- An install of the control plane on a cluster. The checks render the Job and run the patches on the checkout. They do not run `ate-setup` against a cluster.
-- An install of an actor on a cluster, and a run of the registration Job against a control plane. The kind harness will cover them.
-- IAM-based S3 access, SELinux enforcement and microVMs.
+- An install on a real cluster. The integration test runs the same charts and images on kind, which differs from RKE2 and from a Proxmox VM in its node image, its storage class and its network.
 
 ## Workaround ledger
 
@@ -203,7 +233,9 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |
 | PodMonitors for clusters without the GKE `PodMonitoring` CRD (planned) | #2589 | The PodMonitors |
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
-| RustFS with large sparse multipart uploads (planned, unverified) | #3921 | The note, once a test shows it works |
+| RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
+| Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
+| `--preview` in the registration Job, because the actor chart sets a snapshot location in every template and the server forbids it without the client flag | none known | The flag, once the actor chart leaves the location out |
 
 ## License
 

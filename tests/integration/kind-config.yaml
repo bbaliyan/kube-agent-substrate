@@ -1,0 +1,23 @@
+# One node. gVisor runs inside the worker pods, so the node needs no runtime
+# setup. The control plane needs the pod certificate API (podcertcontroller)
+# and the cluster trust bundle API, which are off by default.
+# The settings are the ones of hack/create-kind-cluster.sh in agent-substrate/substrate, without the KVM mount.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+featureGates:
+  ClusterTrustBundle: true
+  ClusterTrustBundleProjection: true
+  PodCertificateRequest: true
+runtimeConfig:
+  "certificates.k8s.io/v1beta1": "true"
+networking:
+  ipFamily: ipv4
+# The install pulls many large images onto this one node. kubelet pulls one at a
+# time by default, so a workload at the back of the queue can miss its deadline.
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    serializeImagePulls: false
+    maxParallelImagePulls: 4

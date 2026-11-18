@@ -1,0 +1,32 @@
+# Lists the objects in the snapshot bucket, with their size and ETag. The harness reads the log.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: snapshot-list
+  namespace: ate-system
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: list
+          # renovate: datasource=docker depName=amazon/aws-cli
+          image: amazon/aws-cli:2.38.5@sha256:c8156a0e74e13929a42d7e60f0d4e14e7d28d980cd21822505d4bff80e5460c1
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: snapshot-store-keys, key: access-key-id}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: snapshot-store-keys, key: secret-access-key}}
+            - {name: AWS_REGION, value: us-east-1}
+            - {name: AWS_ENDPOINT_URL, value: "http://rustfs.ate-system.svc:9000"}
+          command:
+            - aws
+            - s3api
+            - list-objects-v2
+            - --bucket
+            - snapshots
+            - --query
+            - "Contents[].[Size,ETag,Key]"
+            - --output
+            - text

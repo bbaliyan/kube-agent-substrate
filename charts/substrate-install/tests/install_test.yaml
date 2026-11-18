@@ -31,6 +31,13 @@ tests:
           path: spec.template.spec.containers
           count: 1
 
+  - it: copies the checkout with cp -R, because cp -a cannot set the time of a volume that the account does not own
+    template: templates/job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value: [cp, -R, /opt/substrate/., /work/]
+
   - it: deploys from the patched copy and not from the image checkout
     template: templates/job.yaml
     asserts:

@@ -7,7 +7,7 @@
 #   REGISTRATION_IMAGE  name of the registration image, for image-registration and test-image-registration
 #   PLATFORM  target platform of image, such as linux/arm64; empty builds for this host
 #
-# image and test-image need Docker. Run them on the host, not in the devenv image.
+# image, test-image and test-integration need Docker. Run them on the host, not in the devenv image.
 
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -19,7 +19,7 @@ REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration
+.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
 test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract commit-messages
 
@@ -129,3 +129,9 @@ publish-registration:
 	docker buildx build --platform linux/amd64,linux/arm64 --push --tag "$(REGISTRATION_IMAGE)" --metadata-file /tmp/publish-registration-metadata.json images/substrate-registration
 	@echo "Published $(REGISTRATION_IMAGE)"
 	@echo "Digest: $$(python3 -c "import json; print(json.load(open('/tmp/publish-registration-metadata.json'))['containerimage.digest'])")"
+
+# Installs Substrate on a kind cluster with the charts and the production images, registers a
+# sample actor and checks that it suspends and resumes. It is not part of test-commit: it needs
+# Docker and takes minutes. Needs docker, kubectl, helm, jq and curl. See tests/integration/.
+test-integration:
+	bash tests/integration/run.sh

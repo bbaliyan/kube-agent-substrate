@@ -92,6 +92,7 @@
         "podcert": { "type": "object" },
         "actorJWT": { "type": "object" },
         "otlpEndpoint": { "type": "string" },
+        "preview": { "type": "string" },
         "cordonSystemInfraComponents": { "type": "boolean" }
       }
     },

@@ -35,6 +35,21 @@ jobs:
       - run: make test-image-registration
       - run: make image-registration PLATFORM=linux/arm64 REGISTRATION_IMAGE=substrate-registration:arm64
 
+  # Installs Substrate on a kind cluster, registers a sample actor and checks that it suspends
+  # and resumes (make test-integration). It is a separate job so the other checks stay fast.
+  # It is not a required check yet: it pulls images from public registries and runs on a small
+  # runner, so wait for a record of green runs before the branch rules depend on it.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The runner has about 14 GB free. The images and the kind node need more, so remove tools that the test does not use.
+      - run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - run: make test-integration
+
   # Pushes the multi-arch image on main only. It tags main-<short sha>, never a release tag.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

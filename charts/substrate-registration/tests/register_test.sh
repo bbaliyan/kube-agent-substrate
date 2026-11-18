@@ -36,7 +36,10 @@ case "$verb $kind" in
     [ "$preview" = 1 ] || { echo "rpc error: code = InvalidArgument desc = actor_template.snapshot_config.storage_location: Forbidden" >&2; exit 1; }
     n="$(sed -n 's/^  name: //p' "$4")"
     echo "create actor-template $n" >>"$s/calls"; touch "$s/templates/$n" ;;
-  "delete actor-template") echo "delete actor-template $name" >>"$s/calls"; rm -f "$s/templates/$name" ;;
+  "delete actor-template")
+    # The server answers Aborted once while it is busy with the template.
+    if [ -e "$s/abort-delete" ]; then rm "$s/abort-delete"; echo "rpc error: code = Aborted desc = another operation is in progress" >&2; exit 1; fi
+    echo "delete actor-template $name" >>"$s/calls"; rm -f "$s/templates/$name" ;;
   "get actor") [ -e "$s/actors/$name" ] || missing
     read -r t st <"$s/actors/$name"
     jq -n --arg t "$t" --arg st "$st" '{actorTemplate:{name:$t},status:{state:$st}}' ;;
@@ -172,3 +175,13 @@ expect_calls "create actor-template ${long:0:52}-cccccccccc
 create actor $long ${long:0:52}-cccccccccc
 delete actor-template ${long:0:52}-dddddddddd
 " "an old template of an actor with a long name is deleted"
+
+# A delete that the server answers with Aborted is tried again.
+rm -f "$work/state/actors/$long" "$work/state/policies/$long" "$work/state/templates"/*
+touch "$work/state/templates/${long:0:52}-eeeeeeeeee"
+touch "$work/state/abort-delete"
+pass "retry after Aborted"
+expect_calls "create actor-template ${long:0:52}-cccccccccc
+create actor $long ${long:0:52}-cccccccccc
+delete actor-template ${long:0:52}-eeeeeeeeee
+" "a delete that the server answers with Aborted is tried again"

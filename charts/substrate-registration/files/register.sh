@@ -125,6 +125,29 @@ reconcile_egress_policy() {
   ate update egress-policy "$actor" -a "$atespace" -f "$WORK/egress-update.json"
 }
 
+# Deletes a template. Right after an actor moves away, the server can still be busy with the
+# old template and answers Aborted, so retry for a short time.
+delete_template() {
+  local name="$1" atespace="$2" out tries=0
+  until out=$(ate delete actor-template "$name" -a "$atespace" 2>&1); do
+    case "$out" in
+      *Aborted*) ;;
+      *)
+        printf '%s
+' "$out" >&2
+        exit 1
+        ;;
+    esac
+    tries=$((tries + 1))
+    if [ "$tries" -ge 20 ]; then
+      printf '%s
+' "$out" >&2
+      exit 1
+    fi
+    sleep "$POLL_SECONDS"
+  done
+}
+
 # Deletes the older templates of this actor. Their names are the actor name,
 # cut to the length that the chart uses, and 10 hex characters.
 delete_old_templates() {
@@ -135,7 +158,7 @@ delete_old_templates() {
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     log "Delete old template $atespace/$name"
-    ate delete actor-template "$name" -a "$atespace"
+    delete_template "$name" "$atespace"
   done < <(jq -r --arg pattern "^${prefix}-[0-9a-f]{10}\$" --arg keep "$keep" \
     '.actorTemplates[]? | .metadata.name | select(test($pattern) and . != $keep)' <<<"$FETCHED")
 }

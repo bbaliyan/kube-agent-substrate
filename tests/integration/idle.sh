@@ -34,17 +34,33 @@ idle_install() {
     "$@" >>"$logs/helm-idle.log" 2>&1
 }
 
-# Prints the series that the default queries read, so a drift of a metric name shows in the log.
-idle_series() {
-  local q
-  for q in 'count(envoy_server_live == 1)'     'sum(atenet_router_route_duration_seconds_count)'     'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})'     'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})'     'envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}'     'max_over_time(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}[1m])'     'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[1m:15s])'     'ate_actor_stats_cpu_time_seconds_total'; do
-    printf 'series %s
-' "$q"
-    idle_prom "$q" | head -5 || true
-  done
-  printf 'metric names with stats or cpu:
-'
-  kubectl get --raw "/api/v1/namespaces/harness-monitoring/services/prometheus:9090/proxy/api/v1/label/__name__/values" | jq -r '.data[]' | grep -E 'stats|cpu' | head -20 || true
+# Prints the value of a query, or nothing when the query has no sample.
+idle_value() { idle_prom "$1" | awk 'NR == 1 { print $NF }'; }
+
+# Fails unless a query has a sample. A renamed or unscraped metric then fails the test here,
+# and not only in the chart: the signal queries of the chart read 0 for a series that does not exist.
+idle_expect_series() {
+  local value
+  value="$(idle_value "$1")"
+  [ -n "$value" ] || fail "no series for: $1"
+  log "series ok ($value): $1"
+}
+
+# Asserts that every series that the default queries read exists in this cluster.
+idle_assert_series() {
+  idle_expect_series 'count(envoy_server_live == 1)'
+  idle_expect_series 'count(go_memstats_alloc_bytes{app="atenet-router"})'
+  idle_expect_series 'count(go_memstats_alloc_bytes{app="ate-api-server"})'
+  idle_expect_series 'count(go_memstats_alloc_bytes{app="atelet"})'
+  idle_expect_series 'sum(atenet_router_route_duration_seconds_count)'
+  idle_expect_series 'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})'
+  idle_expect_series 'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})'
+  idle_expect_series 'sum(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="harness"})'
+}
+
+# True when no request or tunnel was active in the last minute. It is the in-flight query of the chart.
+idle_inflight_clear() {
+  [ "$(idle_value 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[1m:15s])')" = 0 ]
 }
 
 idle_run_n=0
@@ -104,7 +120,7 @@ POLICY
   expect_continued "$last_counters"
   last_counters="$(counters)"
   actor_is ACTOR_STATE_RUNNING || fail "the actor is not RUNNING after a request"
-  idle_series
+  idle_assert_series
   idle_run || fail "the run failed on a busy actor"
   grep -q "is busy" "$logs/idle-run-$idle_run_n.log" || fail "the run did not report the actor as busy"
   actor_is ACTOR_STATE_RUNNING || fail "the chart suspended a busy actor"
@@ -115,12 +131,12 @@ POLICY
   # The proxy of kubectl ate holds a CONNECT tunnel open. Envoy counts it as an active request of the
   # actor_connect cluster until it closes, and the chart treats an open tunnel as a busy actor. Close it.
   # Envoy closes an unused tunnel after 60 seconds (tunnelIdleTimeout in the router), and the window of
-  # the in-flight signal is 1 minute, so the wait must be longer than 2 minutes.
+  # the in-flight signal is 1 minute, so the wait takes about 2 minutes. The wait ends when the signal is 0.
   kill "$proxy_pid" 2>/dev/null || true
   wait "$proxy_pid" 2>/dev/null || true
   proxy_pid=
-  sleep 135
-  idle_series
+  wait_for 300 "no request or tunnel was active for one minute" idle_inflight_clear
+  idle_assert_series
   # A query that Prometheus refuses: every other signal says idle, so only the fail-safe keeps the actor.
   idle_install --set "queries.cpu=sum(" || fail "the upgrade with a broken query failed"
   if idle_run; then fail "the run passed with a query that Prometheus refuses"; fi

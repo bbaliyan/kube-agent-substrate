@@ -78,7 +78,13 @@ tests:
           path: data["idle-suspend.sh"]
           pattern: "Fail-safe"
       - isNotEmpty:
-          path: data["query.health"]
+          path: data["query.health.envoy"]
+      - isNotEmpty:
+          path: data["query.health.router"]
+      - isNotEmpty:
+          path: data["query.health.ateapi"]
+      - isNotEmpty:
+          path: data["query.health.atelet"]
       - isNotEmpty:
           path: data["query.routed"]
       - isNotEmpty:

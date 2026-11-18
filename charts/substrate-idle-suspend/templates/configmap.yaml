@@ -16,8 +16,14 @@ data:
     SUSPEND_MODE={{ .Values.suspendMode }}
     PROMETHEUS_URL={{ include "substrate-idle-suspend.prometheusUrl" . }}
     QUERY_TIMEOUT={{ .Values.prometheus.timeoutSeconds }}
-  query.health: |
-    {{- .Values.queries.health | nindent 4 }}
+  query.health.envoy: |
+    {{- .Values.queries.health.envoy | nindent 4 }}
+  query.health.router: |
+    {{- .Values.queries.health.router | nindent 4 }}
+  query.health.ateapi: |
+    {{- .Values.queries.health.ateapi | nindent 4 }}
+  query.health.atelet: |
+    {{- .Values.queries.health.atelet | nindent 4 }}
   query.routed: |
     {{- .Values.queries.routed | nindent 4 }}
   query.resumed: |

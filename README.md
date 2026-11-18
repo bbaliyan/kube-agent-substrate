@@ -222,11 +222,11 @@ The chart runs one CronJob. The CronJob uses the registration image, which holds
 
 To use it:
 
-1. Run Prometheus, and make it scrape the router, the egress proxy and atelet (see "The signals").
+1. Run Prometheus, and make it scrape the router, the egress proxy, ate-api-server and atelet (see "The signals").
 2. Copy `charts/substrate-idle-suspend/ci/aws-values.yaml` or `onprem-values.yaml`.
 3. Set `actors` to the atespace and name of each actor, `prometheus.url`, and `image.digest` to the digest of the registration image.
 4. Set `schedule` and `idleMinutes`. The defaults are every 5 minutes and 30 minutes of idle time. `idleCpuCores` is the CPU use that still counts as idle. The default is 0.05 cores.
-5. Grant the service account of the CronJob the `editor` role in the atespace of each actor. The principal is `user:system:serviceaccount:<release namespace>:<release>-substrate-idle-suspend`. Add it to the access policy of the atespace with `kubectl ate update access-policy -a <atespace>`. The account can then read and suspend the actors of that atespace and nothing else. Do not make it a bootstrap owner.
+5. Grant the service account of the CronJob the `editor` role in the atespace of each actor. The principal is `user:system:serviceaccount:<release namespace>:<service account name>`. The service account name is `<release>-substrate-idle-suspend`, or only `<release>` if the release name already contains `substrate-idle-suspend`, cut to 40 characters. The value `serviceAccount.name` replaces it. To read the real name, run `kubectl -n <release namespace> get cronjob -o jsonpath='{.items[*].spec.jobTemplate.spec.template.spec.serviceAccountName}'`. Add the principal to the access policy of the atespace with `kubectl ate update access-policy -a <atespace>`. The chart cannot do this for you, because the control plane keeps access policies in its database, and it has no value for it. The account can then read and suspend the actors of that atespace and nothing else. Do not make it a bootstrap owner.
 6. Install the chart, or sync it with Argo CD.
 
 If Prometheus needs a bearer token, put the token in a Secret and set `prometheus.bearerTokenSecret.name`. If it uses a private CA, set `prometheus.caSecret.name`.
@@ -251,10 +251,10 @@ All names are the OpenTelemetry names of the Substrate metric registry (`docs/me
 
 | Signal | Query reads | Busy when |
 |---|---|---|
-| `health` | `envoy_server_live` | The result is not above 0. Then the run fails. This proves that Prometheus scrapes Envoy |
+| `health` (four queries) | `envoy_server_live` for `inflight`, and `go_memstats_alloc_bytes` with the pod label `app` of the router (`routed`), of ate-api-server (`resumed`) and of atelet (`cpu`) | A result that is not above 0 fails the run. This proves that each source of a signal is scraped. Without it, a renamed or unscraped series would read as silence |
 | `routed` | `atenet_router_route_duration_seconds_count` for the template | The count changed in the idle time. The router and the egress proxy record every routed request here |
 | `resumed` | `ate_actor_lifecycle_operation_duration_seconds_count` with `ate_actor_operation_name="resume"` for the template | ateapi resumed the actor in the idle time. The actor did not rest for the full time |
-| `inflight` | `envoy_cluster_upstream_rq_active` for the `actor_*` clusters of the router | A request or an open tunnel was active at any time in the idle time. Envoy has no series for one actor, so any actor counts. A client that keeps a tunnel open, such as `kubectl ate proxy`, keeps the actor busy until the router closes the unused tunnel after 60 seconds |
+| `inflight` | `envoy_cluster_upstream_rq_active` for the `actor_*` clusters of the router | A request or an open tunnel was active at any time in the idle time. Envoy has no series for one actor, so this signal is the same for every actor: one open tunnel of any client keeps every watched actor busy. A tunnel that nobody uses closes after 60 seconds |
 | `cpu` | `ate_actor_stats_cpu_time_seconds_total` for the template | The rate over the idle time is above `idleCpuCores` |
 
 Upstream v1.0.0 has no metric or field for the last activity of an actor. The `routed` and `resumed` queries compare the count now with the count one idle time ago. They do not use `increase()`, because a counter that starts at 1 has no earlier sample, and `increase()` would read 0 for the first request.
@@ -269,12 +269,14 @@ The script suspends an actor only when all of these are true:
 
 - `kubectl ate` read the actor and the state is `ACTOR_STATE_RUNNING`.
 - Every query returned exactly one number.
-- The `health` query shows that Prometheus scrapes Envoy.
+- Each `health` query shows that its source is scraped.
 - Every signal says idle.
 
 Any other result ends the run with a non-zero exit code and suspends nothing for that actor. This includes a refused query, an HTTP error, no sample, many samples, a value that is not a number, a template name that is not a plain name, and a failed `kubectl ate` call. One failing actor does not stop the check of the next actor, and the run still fails at the end.
 
-A request can still arrive between the last query and the suspend. The idle time and the `inflight` signal make this rare, not impossible. The suspend does not lose the request: the router resumes the actor on the next request.
+The `inflight` signal is fleet-wide and counts tunnels. This is the safe side: it can delay a suspend, never cause one. The cost is that a long-lived tunnel of one client holds back the suspend of every actor. If that is too coarse for you, narrow the `inflight` query to the clusters that you use. Do not remove it.
+
+A request can still arrive between the last query and the suspend. A request that is younger than one scrape interval is not in the data yet. The idle time makes this rare, not impossible, so keep `idleMinutes` well above the scrape interval. The router parks a request for a suspended actor until the actor has resumed, so a request that arrives after the suspend is not lost. Upstream v1.0.0 documents no drain of a request that is already running on the actor, so a suspend at that moment can cut it.
 
 ### What the kind harness verifies
 

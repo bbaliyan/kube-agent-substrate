@@ -127,7 +127,7 @@ image-registration:
 # Runs the tools of the image: kubectl-ate reports its version, jq parses and curl starts.
 test-image-registration: image-registration
 	docker run --rm --entrypoint sh "$(REGISTRATION_IMAGE)" -euc '\
-	  kubectl-ate --version && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null'
+	  kubectl-ate --version && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null && curl --version >/dev/null'
 
 # Pushes the multi-arch registration image and prints its digest. CI runs it on main only.
 publish-registration:

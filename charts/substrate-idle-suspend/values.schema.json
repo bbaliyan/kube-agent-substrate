@@ -44,7 +44,17 @@
       "additionalProperties": false,
       "required": ["health", "routed", "resumed", "inflight", "cpu"],
       "properties": {
-        "health": { "type": "string", "minLength": 1 },
+        "health": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["envoy", "router", "ateapi", "atelet"],
+          "properties": {
+            "envoy": { "type": "string", "minLength": 1 },
+            "router": { "type": "string", "minLength": 1 },
+            "ateapi": { "type": "string", "minLength": 1 },
+            "atelet": { "type": "string", "minLength": 1 }
+          }
+        },
         "routed": { "type": "string", "minLength": 1 },
         "resumed": { "type": "string", "minLength": 1 },
         "inflight": { "type": "string", "minLength": 1 },

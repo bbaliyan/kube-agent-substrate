@@ -33,6 +33,7 @@ case "$1 $2" in
     if [ -e "$s/get-error" ]; then echo "rpc error: code = Unavailable desc = down" >&2; exit 1; fi
     [ -e "$f" ] || { echo "rpc error: code = NotFound desc = actor not found" >&2; exit 1; }
     read -r state template <"$f"
+    if [ -e "$s/bad-json" ]; then echo "not json"; exit 0; fi
     jq -n --arg st "$state" --arg t "$template" --arg a "$atespace" '{actorTemplate:{name:$t,atespace:$a},status:{state:$st}}' ;;
   "suspend actor")
     echo "suspend actor $3 -a $atespace" >>"$s/calls"
@@ -59,7 +60,10 @@ done
 [ "$stdin" = 0 ] || cat >"$s/curl-stdin"
 printf '%s\n' "$query" >>"$s/queries"
 case "$query" in
-  *envoy_server_live*) signal=health ;;
+  *envoy_server_live*) signal=health-envoy ;;
+  *'app="atenet-router"'*) signal=health-router ;;
+  *'app="ate-api-server"'*) signal=health-ateapi ;;
+  *'app="atelet"'*) signal=health-atelet ;;
   *atenet_router_route_duration*) signal=routed ;;
   *lifecycle_operation*) signal=resumed ;;
   *envoy_cluster_upstream_rq_active*) signal=inflight ;;
@@ -85,19 +89,19 @@ helm template r "$chart" -f "$chart/ci/aws-values.yaml" -s templates/configmap.y
     out && /^    / { sub(/^    /, ""); print > out; next }
     out && /^[^ ]/ { close(out); out = "" }
   '
-for f in actors config.env query.health query.routed query.resumed query.inflight query.cpu; do
+for f in actors config.env query.health.envoy query.health.router query.health.ateapi query.health.atelet query.routed query.resumed query.inflight query.cpu; do
   test -s "$work/config/$f" || { echo "FAIL: the chart did not render $f"; exit 1; }
 done
 
 state="$work/state"
 reset() {
-  rm -f "$state"/calls "$state"/queries "$state"/signals "$state"/value.* "$state"/get-error "$state"/suspend-error "$state"/curl-stdin "$state"/actors/*
+  rm -f "$state"/bad-json "$state"/calls "$state"/queries "$state"/signals "$state"/value.* "$state"/get-error "$state"/suspend-error "$state"/curl-stdin "$state"/actors/*
   : >"$state/calls"
   : >"$state/queries"
   : >"$state/signals"
   local s
-  for s in health routed resumed inflight cpu; do echo 0 >"$state/value.$s"; done
-  echo 1 >"$state/value.health"
+  for s in routed resumed inflight cpu; do echo 0 >"$state/value.$s"; done
+  for s in health-envoy health-router health-ateapi health-atelet; do echo 1 >"$state/value.$s"; done
   echo 0.001 >"$state/value.cpu"
   # The aws values file lists reviews/pr-review.
   echo "ACTOR_STATE_RUNNING pr-review-0123456789" >"$state/actors/reviews.pr-review"
@@ -169,7 +173,7 @@ echo ERR >"$state/value.cpu"
 expect_no_suspend "a busy signal ends the check before a later query that would fail"
 grep -qx cpu "$state/signals" && fail "the cpu query ran after a busy signal"
 
-for signal in health routed resumed inflight cpu; do
+for signal in health-envoy health-router health-ateapi health-atelet routed resumed inflight cpu; do
   for mode in ERR EMPTY MANY NAN BAD; do
     reset
     echo "$mode" >"$state/value.$signal"
@@ -177,10 +181,13 @@ for signal in health routed resumed inflight cpu; do
   done
 done
 
-reset
-echo 0 >"$state/value.health"
-expect_failure_no_suspend "a metrics source that reports no scrape fails the run"
-grep -q 'not healthy' "$work/out" || fail "the output did not name the unhealthy source"
+for source in envoy router ateapi atelet; do
+  reset
+  echo 0 >"$state/value.health-$source"
+  expect_failure_no_suspend "a missing $source series (health returns 0) fails the run"
+  grep -q "the $source metrics are missing" "$work/out" || fail "the output did not name the missing $source source"
+  test ! -s "$state/signals" || ! grep -qx 'routed\|cpu\|resumed\|inflight' "$state/signals" || fail "a signal query ran although the $source check failed"
+done
 
 reset
 echo "ACTOR_STATE_SUSPENDED pr-review-0123456789" >"$state/actors/reviews.pr-review"
@@ -231,3 +238,16 @@ echo "ok: a failing actor does not stop the next actor, and the run fails"
 reset
 : >"$work/config/actors"
 expect_failure_no_suspend "an empty actor list fails the run"
+
+reset
+touch "$state/bad-json"
+expect_failure_no_suspend "a state that is not valid JSON fails the run"
+
+reset
+cat >"$work/bin/awk" <<'AWK'
+#!/usr/bin/env bash
+exit 2
+AWK
+chmod +x "$work/bin/awk"
+expect_failure_no_suspend "an awk failure fails the run and does not read as idle"
+rm "$work/bin/awk"

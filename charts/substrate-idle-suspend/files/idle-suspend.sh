@@ -11,7 +11,8 @@
 # ends the run with a non-zero exit code and suspends nothing for that actor.
 #
 # Input: $CONFIG_DIR/actors holds one line for each actor, atespace/name. config.env holds the
-# settings. query.<signal> holds the PromQL of each signal. Each query returns one sample.
+# settings. query.<signal> holds the PromQL of each signal, and query.health.<source> the query
+# that shows the source of a signal exists. Each query returns one sample.
 set -euo pipefail
 
 CONFIG_DIR="${CONFIG_DIR:-/config}"
@@ -70,11 +71,19 @@ query() {
   fi
 }
 
-# True when $1 is greater than $2.
-above() { awk -v v="$1" -v t="$2" 'BEGIN { exit !(v > t) }'; }
+# True when $1 is greater than $2. An awk error (exit code 2) ends the script, so it never reads as idle.
+above() {
+  local rc=0
+  awk -v v="$1" -v t="$2" 'BEGIN { exit !(v > t) }' || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    err "awk failed to compare $1 with $2"
+    exit 2
+  fi
+  [ "$rc" -eq 0 ]
+}
 
 check_actor() {
-  local atespace="$1" name="$2" json state template template_atespace busy="" signal threshold
+  local atespace="$1" name="$2" json state template template_atespace busy="" signal threshold source
   if ! json="$(ate get actor "$name" -a "$atespace" -o json 2>"$WORK/stderr")"; then
     case "$(cat "$WORK/stderr")" in
       *NotFound*) err "actor $atespace/$name does not exist" ;;
@@ -82,20 +91,23 @@ check_actor() {
     esac
     return 1
   fi
-  state="$(jq -r '.status.state // ""' <<<"$json")"
+  state="$(jq -r '.status.state // ""' <<<"$json")" || { err "the state of actor $atespace/$name is not valid JSON"; return 1; }
   if [ "$state" != ACTOR_STATE_RUNNING ]; then
     log "Actor $atespace/$name is ${state:-without a state}. Nothing to do."
     return 0
   fi
-  template="$(jq -r '.actorTemplate.name // ""' <<<"$json")"
-  template_atespace="$(jq -r '.actorTemplate.atespace // ""' <<<"$json")"
+  template="$(jq -r '.actorTemplate.name // ""' <<<"$json")" || return 1
+  template_atespace="$(jq -r '.actorTemplate.atespace // ""' <<<"$json")" || return 1
   template_atespace="${template_atespace:-$atespace}"
   # The names go into PromQL, so refuse anything but a plain name.
   [[ "$template" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || { err "actor $atespace/$name has the template name '$template'"; return 1; }
   [[ "$template_atespace" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || { err "actor $atespace/$name has the template atespace '$template_atespace'"; return 1; }
 
-  query health "$template_atespace" "$template" || return 1
-  above "$VALUE" 0 || { err "the metrics source is not healthy: the health query returned $VALUE"; return 1; }
+  # Every source of a signal must exist, or a missing series would read as silence.
+  for source in envoy router ateapi atelet; do
+    query "health.$source" "$template_atespace" "$template" || return 1
+    above "$VALUE" 0 || { err "the $source metrics are missing or not scraped: the health.$source query returned $VALUE"; return 1; }
+  done
 
   local summary=""
   for signal in routed resumed inflight cpu; do

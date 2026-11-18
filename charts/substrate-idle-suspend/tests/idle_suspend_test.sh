@@ -163,6 +163,12 @@ reset
 echo 1 >"$state/value.routed"; echo 1 >"$state/value.cpu"
 expect_no_suspend "several busy signals keep the actor"
 
+reset
+echo 1 >"$state/value.resumed"
+echo ERR >"$state/value.cpu"
+expect_no_suspend "a busy signal ends the check before a later query that would fail"
+grep -qx cpu "$state/signals" && fail "the cpu query ran after a busy signal"
+
 for signal in health routed resumed inflight cpu; do
   for mode in ERR EMPTY MANY NAN BAD; do
     reset

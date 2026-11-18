@@ -34,6 +34,19 @@ idle_install() {
     "$@" >>"$logs/helm-idle.log" 2>&1
 }
 
+# Prints the series that the default queries read, so a drift of a metric name shows in the log.
+idle_series() {
+  local q
+  for q in 'count(envoy_server_live == 1)'     'sum(atenet_router_route_duration_seconds_count)'     'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})'     'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})'     'ate_actor_stats_cpu_time_seconds_total'; do
+    printf 'series %s
+' "$q"
+    idle_prom "$q" | head -5 || true
+  done
+  printf 'metric names with stats or cpu:
+'
+  kubectl get --raw "/api/v1/namespaces/harness-monitoring/services/prometheus:9090/proxy/api/v1/label/__name__/values" | jq -r '.data[]' | grep -E 'stats|cpu' | head -20 || true
+}
+
 idle_run_n=0
 # Starts one run of the CronJob now and waits for it. Prints the log to $logs/idle-run-N.log.
 # Returns 0 when the Job succeeded and 1 when it failed.
@@ -91,26 +104,16 @@ POLICY
   expect_continued "$last_counters"
   last_counters="$(counters)"
   actor_is ACTOR_STATE_RUNNING || fail "the actor is not RUNNING after a request"
+  idle_series
   idle_run || fail "the run failed on a busy actor"
   grep -q "is busy" "$logs/idle-run-$idle_run_n.log" || fail "the run did not report the actor as busy"
   actor_is ACTOR_STATE_RUNNING || fail "the chart suspended a busy actor"
   log "the busy actor stayed RUNNING"
-  # Names the real series that the default queries read, so a drift of a metric name shows here.
-  {
-    for q in 'count(envoy_server_live == 1)' \
-      'sum(atenet_router_route_duration_seconds_count)' \
-      'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})' \
-      'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})' \
-      'sum(ate_actor_stats_cpu_time_seconds_total)'; do
-      printf '%s\n' "$q"
-      idle_prom "$q" || true
-    done
-  } >"$logs/idle-series.txt"
-  cat "$logs/idle-series.txt"
 
   step "Wait for the idle time, then verify that a failing signal query suspends nothing"
   # idleMinutes is 1. Wait until every signal has been quiet for one minute and the scrape has seen it.
   sleep 80
+  idle_series
   # A query that Prometheus refuses: every other signal says idle, so only the fail-safe keeps the actor.
   idle_install --set "queries.cpu=sum(" || fail "the upgrade with a broken query failed"
   if idle_run; then fail "the run passed with a query that Prometheus refuses"; fi

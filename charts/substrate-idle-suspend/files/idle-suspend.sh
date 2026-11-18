@@ -103,8 +103,11 @@ check_actor() {
     threshold=0
     [ "$signal" != cpu ] || threshold="$IDLE_CPU_CORES"
     summary="$summary $signal=$VALUE"
+    # One busy signal decides: the actor stays. The later queries are not run, so an actor that
+    # was just resumed (its CPU series may not exist yet) does not fail the run.
     if above "$VALUE" "$threshold"; then
-      busy="$busy $signal"
+      busy=" $signal"
+      break
     fi
   done
   if [ -n "$busy" ]; then

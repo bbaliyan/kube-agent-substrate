@@ -1,5 +1,5 @@
-# The registration image: the tools that the substrate-registration chart runs.
-# kubectl-ate, jq and bash. Nothing is downloaded when a container starts.
+# The registration image: the tools that the substrate-registration and substrate-idle-suspend charts run.
+# kubectl-ate, jq, curl and bash. Nothing is downloaded when a container starts.
 #
 # To change the Substrate version, set SUBSTRATE_TAG and SUBSTRATE_COMMIT together.
 # The build fails if the tag no longer names the commit.
@@ -50,6 +50,10 @@ ARG SUBSTRATE_TAG=v1.0.0
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Registers actors in Agent Substrate ${SUBSTRATE_TAG}" \
       org.opencontainers.image.licenses="Apache-2.0"
+# curl lets the substrate-idle-suspend chart query Prometheus. It comes from the Debian
+# repository of the pinned base image, so the build is not byte for byte repeatable. The
+# charts pin the image by digest.
+RUN apt-get update  && apt-get install -y --no-install-recommends curl ca-certificates  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/kubectl-ate /out/jq /usr/local/bin/
 USER 65532:65532
 ENV HOME=/tmp

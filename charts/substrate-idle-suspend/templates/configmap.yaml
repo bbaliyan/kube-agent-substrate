@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "substrate-idle-suspend.fullname" . }}-{{ include "substrate-idle-suspend.hash" . }}
+  labels:
+    {{- include "substrate-idle-suspend.labels" . | nindent 4 }}
+immutable: true
+data:
+  idle-suspend.sh: |
+    {{- .Files.Get "files/idle-suspend.sh" | nindent 4 }}
+  actors: |
+    {{- include "substrate-idle-suspend.actors" . | trim | nindent 4 }}
+  config.env: |
+    IDLE_MINUTES={{ .Values.idleMinutes }}
+    IDLE_CPU_CORES={{ .Values.idleCpuCores }}
+    SUSPEND_MODE={{ .Values.suspendMode }}
+    PROMETHEUS_URL={{ include "substrate-idle-suspend.prometheusUrl" . }}
+    QUERY_TIMEOUT={{ .Values.prometheus.timeoutSeconds }}
+  query.health: |
+    {{- .Values.queries.health | nindent 4 }}
+  query.routed: |
+    {{- .Values.queries.routed | nindent 4 }}
+  query.resumed: |
+    {{- .Values.queries.resumed | nindent 4 }}
+  query.inflight: |
+    {{- .Values.queries.inflight | nindent 4 }}
+  query.cpu: |
+    {{- .Values.queries.cpu | nindent 4 }}

@@ -1,0 +1,86 @@
+# The actors to watch. Use the same atespace and name as in the substrate-actor chart.
+actors: []
+#  - atespace: reviews
+#    name: pr-review
+
+# Cron schedule of the check.
+schedule: "*/5 * * * *"
+
+# An actor must show no activity for this many minutes before it is suspended.
+idleMinutes: 30
+
+# The actor is idle when it used fewer CPU cores than this over the idle time.
+idleCpuCores: 0.05
+
+# How the snapshot becomes durable: async (the upstream default) or sync.
+suspendMode: async
+
+# Prometheus is the source of the idle signals.
+prometheus:
+  # Base URL, for example https://prometheus.example.com. The chart does not render without it.
+  url: ""
+  # A Secret in the release namespace that holds a bearer token. Leave the name empty for no authentication.
+  bearerTokenSecret:
+    name: ""
+    key: token
+  # A Secret in the release namespace that holds the CA certificate of the server. Leave the name empty to use the CA bundle of the image.
+  caSecret:
+    name: ""
+    key: ca.crt
+  # Seconds that one query may take.
+  timeoutSeconds: 20
+
+# The queries that read the idle signals. Each query must return exactly one sample.
+# A query that returns no sample or many samples is an error, and nothing is suspended.
+# The script replaces @ATESPACE@ and @TEMPLATE@ with the atespace and the template of the actor,
+# and @WINDOW@ with the idle time. The metric names are the upstream OpenTelemetry names after the
+# Prometheus conversion: dots become underscores, and a unit and `_total` are added.
+queries:
+  # Must be above 0 when the metrics source works. A signal query reads 0 for a series that
+  # does not exist, so without this query a scrape that stopped would look like silence.
+  health: 'count(envoy_server_live == 1)'
+  # 1 when the router or the egress proxy counted a route for the template in the idle time.
+  # It compares the sum now with the sum one idle time ago. It does not use increase():
+  # a counter that starts at 1 has no earlier sample, so increase() reads 0 for the first request.
+  routed: '(sum(atenet_router_route_duration_seconds_count{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}) or vector(0)) != bool (sum(atenet_router_route_duration_seconds_count{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"} offset @WINDOW@) or vector(0))'
+  # 1 when ateapi resumed an actor of the template in the idle time. The actor was then not idle for the full time.
+  resumed: '(sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume",ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}) or vector(0)) != bool (sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume",ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"} offset @WINDOW@) or vector(0))'
+  # Above 0 when a request was in flight through the actor clusters of the router at any time in the idle time.
+  # Envoy has no series for one actor, so this covers all actors.
+  inflight: 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[@WINDOW@:15s])'
+  # CPU cores that the actors of the template used in the idle time. Compared with idleCpuCores.
+  cpu: 'sum(rate(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}[@WINDOW@]))'
+
+substrate:
+  # The release of the control plane. The image is tagged with the same version.
+  version: v1.0.0
+  # The namespace of ate-api-server.
+  namespace: ate-system
+
+# The image of the substrate-registration chart: kubectl-ate, jq, curl and bash.
+image:
+  repository: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration
+  # The all-zero digest never pulls. Set the digest of the published image.
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+# A run that takes longer than this many seconds is stopped.
+activeDeadlineSeconds: 300
+# A run that missed its start by more than this many seconds is skipped.
+startingDeadlineSeconds: 120
+successfulJobsHistoryLimit: 1
+failedJobsHistoryLimit: 3
+# Set to true to stop the schedule without removing the chart.
+suspend: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+
+serviceAccount:
+  name: ""

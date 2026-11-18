@@ -341,7 +341,7 @@ big_downloads() {
   local pod
   for pod in $(kubectl -n ate-system get pods -l app=atelet -o name); do
     kubectl -n ate-system logs "$pod" --all-containers --tail=-1 2>/dev/null
-  done | sed -n 's/.*"Decompressed zstd download".*"logical_bytes":\([0-9]*\).*//p' | awk '$1 >= 134217728' | wc -l
+  done | sed -n 's/.*"Decompressed zstd download".*"logical_bytes":\([0-9]*\).*/\1/p' | awk '$1 >= 134217728' | wc -l
 }
 downloads_before="$(big_downloads)"
 # A revert drops the node-local snapshot, so the next resume must read the snapshot from RustFS.

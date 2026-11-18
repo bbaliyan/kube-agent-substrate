@@ -14,6 +14,10 @@ env:
   - name: ATE_PREVIEW
     value: PerTemplateSnapshotLocation
 config:
+  atenet:
+    egress:
+      # ate-setup needs a credential provider setting. The sample actor injects no credentials.
+      credentialProvider: '{"enabled":false}'
   ateapi:
     authz:
       # The registration Job creates atespaces, so its account must be a bootstrap owner.

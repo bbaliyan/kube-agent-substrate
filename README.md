@@ -144,12 +144,12 @@ Port-forward RBAC cannot name a pod, so the Role covers every pod in the namespa
 
 ### What the kind harness verifies
 
-The kind harness is a later ticket. It must show on a real control plane:
+`make test-integration` runs the registration Job on a real control plane. See "Integration test" below. It verifies:
 
 - A sample actor registers: the atespace, the template, the actor and the egress policy exist.
 - A second run changes nothing.
 - A changed template moves a suspended actor in place and keeps its state, and the Job fails on a resumed actor, then moves it after suspend.
-- An egress-only change updates the live policy in place. The real protojson output of `get egress-policy` must match the rules that the chart renders, or the Job updates the policy on every run.
+- An egress-only change updates the live policy in place, and a run after it changes nothing. The real protojson output of `get egress-policy` matches the rules that the chart renders.
 - The Job authenticates with its own token and the RBAC above, with no extra grant.
 
 ### Publish the registration image
@@ -175,11 +175,40 @@ Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the ins
 
 The render lint is a quick lint. It runs `helm template` and `kubeconform` for each file in `charts/*/ci/`: the `aws` and `onprem` profiles, each with one actor and with several. It does not prove that an install works.
 
+### Integration test
+
+`make test-integration` is the main test of this repo. It needs Docker, `kubectl`, `helm`, `jq` and `curl`. It takes about 5 minutes on a warm Dev box. It is not part of `make test-commit`. The kind cluster, the registry and the files of a run are deleted when it ends. Set `KEEP_CLUSTER=1` to keep them.
+
+The test does these steps, in order:
+
+1. It builds the install image, the registration image and the counter demo actor image from this repo and the pinned Substrate release. It pushes them to a registry that it starts next to the cluster. The charts pin the images by their pushed digest.
+2. It creates one kind node with the cluster settings that Substrate needs: the pod certificate and cluster trust bundle APIs.
+3. It deploys RustFS and creates the snapshot bucket. RustFS 1.0.x cannot create a bucket itself, so a Job with the pinned AWS CLI image does it. The keys are fixed test values in a Secret that the test creates.
+4. It installs the `substrate-install` chart with the `s3-compatible` storage profile and waits for the install Job to finish.
+5. It starts a worker pool, installs the `substrate-actor` chart and the `substrate-registration` chart for one actor, and checks that the actor registers.
+6. It resumes the actor, suspends it, drops its node-local snapshot with a revert, resumes it again from RustFS, and suspends it. The test fails if the actor is not `ACTOR_STATE_RUNNING` after a resume or not `ACTOR_STATE_SUSPENDED` after a suspend.
+7. It runs the install Job and the registration Job again, and verifies that nothing changes.
+8. It verifies that the live egress policy equals the rules that the chart renders.
+9. It changes the template and verifies that the suspended actor moves with its state kept and the same identity.
+10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
+11. It changes only the egress rules and verifies that the policy updates in place.
+
+The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. The test runs on the Dev box with `scripts/devbox-check <repo> test-integration`. On a kind node with less than 4 GiB of memory the install does not finish, so give the node 8 GiB.
+
+The test does not cover:
+
+- IAM-based S3 access. It uses static keys against RustFS. The `aws` profile is checked only by the render tests and by `make test-image`.
+- SELinux enforcement. The kind node does not enforce it, and the repo has no SELinux policy yet.
+- The CPU model of a Proxmox worker pool and the restore of a golden snapshot on another CPU. The cluster has one node.
+- microVMs. The install uses the gVisor class only.
+- Credential injection. The test sets the credential provider to off. The sample actor has egress rules without credentials.
+- The webhook shim, the ingress and the External Secrets resources of the `substrate-actor` chart.
+- Several actors, several nodes and the `arm64` architecture. The test runs the architecture of the host.
+- Registry and object store TLS. The test uses plain HTTP inside the cluster.
+
 Not covered by any check in this repo:
 
-- An install of the control plane on a cluster. The checks render the Job and run the patches on the checkout. They do not run `ate-setup` against a cluster.
-- An install of an actor on a cluster, and a run of the registration Job against a control plane. The kind harness will cover them.
-- IAM-based S3 access, SELinux enforcement and microVMs.
+- An install on a real cluster. The integration test runs the same charts and images on kind, which differs from RKE2 and from a Proxmox VM in its node image, its storage class and its network.
 
 ## Workaround ledger
 

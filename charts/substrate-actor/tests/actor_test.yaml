@@ -234,4 +234,29 @@ tests:
           value: 4f53cda18c
       - matchRegex:
           path: data["egress-policy.json"]
-          pattern: '"rules":\[\{"https":\{"hostnames":\["git.example.com"\]\}\}\]'
+          pattern: '"rules":\[\{"https":\{"hostnames":\["git.example.com"\],"ports":\{"numbers":\[443\]\}\}\}\]'
+
+  - it: renders the ports that the server fills in, so the registration Job finds no difference
+    template: templates/actor.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+          egress:
+            - protocol: http
+              hostnames: [plain.example.com]
+            - protocol: https
+              hostnames: [git.example.com]
+              ports: [8443]
+            - protocol: tlsPassthrough
+              hostnames: [raw.example.com]
+              ports: [443]
+    asserts:
+      - matchRegex:
+          path: data["egress-policy.json"]
+          pattern: '"rules":\[\{"http":\{"hostnames":\["plain.example.com"\],"ports":\{"numbers":\[80\]\}\}\},\{"https":\{"hostnames":\["git.example.com"\],"ports":\{"numbers":\[8443\]\}\}\},\{"tlsPassthrough":\{"hostnames":\["raw.example.com"\],"ports":\{"numbers":\[443\]\}\}\}\]'

@@ -1,0 +1,174 @@
+suite: substrate-workers
+templates:
+  - templates/workerpool.yaml
+  - templates/selinux.yaml
+  - templates/observability.yaml
+release:
+  name: pool
+  namespace: workers
+tests:
+  - it: renders the pool with the worker image pinned by tag and digest
+    template: templates/workerpool.yaml
+    asserts:
+      - isKind:
+          of: WorkerPool
+      - matchRegex:
+          path: spec.workerImage
+          pattern: "^ghcr.io/agent-substrate/substrate/ateworker-gvisor:v1\\.0\\.0@sha256:[a-f0-9]{64}$"
+      - equal:
+          path: spec.sandboxClasses[0].name
+          value: gvisor
+
+  - it: takes the sizing only from values and mirrors the limits to the requests
+    template: templates/workerpool.yaml
+    set:
+      workers:
+        replicas: 7
+        cpu: 500m
+        memory: 3Gi
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 7
+      - equal:
+          path: spec.template.resources
+          value:
+            requests: {cpu: 500m, memory: 3Gi}
+            limits: {cpu: 500m, memory: 3Gi}
+
+  - it: names the pool from the release unless pool.name is set
+    template: templates/workerpool.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pool
+
+  - it: renders no policy by default
+    template: templates/selinux.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the policy and its binding when the switch is on
+    template: templates/selinux.yaml
+    set:
+      selinux.enabled: true
+      pool.name: agents
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: MutatingAdmissionPolicy
+        documentIndex: 0
+      - equal:
+          path: apiVersion
+          value: admissionregistration.k8s.io/v1
+        documentIndex: 0
+      - equal:
+          path: spec.reinvocationPolicy
+          value: IfNeeded
+        documentIndex: 0
+      - equal:
+          path: spec.policyName
+          value: agents-worker-selinux
+        documentIndex: 1
+
+  - it: matches worker pods by label only, in the release namespace
+    template: templates/selinux.yaml
+    documentIndex: 0
+    set:
+      selinux.enabled: true
+      pool.name: agents
+    asserts:
+      - equal:
+          path: spec.matchConstraints.objectSelector
+          value:
+            matchLabels:
+              ate.dev/worker-pool: agents
+      - equal:
+          path: spec.matchConstraints.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: workers
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [pods]
+      - notExists:
+          path: spec.matchConditions
+      - matchRegex:
+          path: spec.mutations[0].applyConfiguration.expression
+          pattern: 'spc_t'
+
+  - it: renders no monitoring object or other provider CRD object by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/observability.yaml
+      - notMatchRegex:
+          path: apiVersion
+          pattern: monitoring
+        template: templates/workerpool.yaml
+
+  - it: renders one PodMonitor for each component and one ConfigMap for each dashboard when on
+    template: templates/observability.yaml
+    set:
+      observability:
+        enabled: true
+        podMonitorLabels: {release: prometheus}
+        dashboards:
+          substrate.json: '{"title":"S"}'
+    asserts:
+      - hasDocuments:
+          count: 8
+      - isKind:
+          of: PodMonitor
+        documentIndex: 0
+      - equal:
+          path: metadata.labels.release
+          value: prometheus
+        documentIndex: 0
+      - equal:
+          path: spec.namespaceSelector.matchNames
+          value: [ate-system]
+        documentIndex: 0
+      - isKind:
+          of: ConfigMap
+        documentIndex: 7
+      - equal:
+          path: metadata.labels.grafana_dashboard
+          value: "1"
+        documentIndex: 7
+
+  - it: rejects an image without a digest
+    template: templates/workerpool.yaml
+    set:
+      image.digest: ""
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a cpu that is not a quantity
+    template: templates/workerpool.yaml
+    set:
+      workers.cpu: lots
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown sandbox class
+    template: templates/workerpool.yaml
+    set:
+      sandboxClass: firecracker
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown key at each level
+    template: templates/workerpool.yaml
+    set:
+      workers.gpu: 1
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level key and an unknown observability key
+    template: templates/workerpool.yaml
+    set:
+      extra: true
+      observability.extra: true
+    asserts:
+      - failedTemplate: {}

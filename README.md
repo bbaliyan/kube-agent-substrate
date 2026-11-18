@@ -9,6 +9,7 @@ Helm charts that run [Agent Substrate](https://github.com/agent-substrate/substr
 | `substrate-install` | Installs or upgrades the Substrate control plane with a Job that runs `ate-setup` from a pinned install image |
 | `substrate-registration` | Registers the actors of the `substrate-actor` chart in a running control plane with a Job that runs `kubectl-ate` from a pinned registration image |
 | `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist, credential injection, webhook shim and ingress |
+| `substrate-workers` | Runs a WorkerPool with its sizing, an opt-in SELinux admission policy and optional PodMonitors and dashboards |
 
 ## Install Substrate
 
@@ -93,6 +94,61 @@ The chart pins the image by digest. The default `image.digest` is all zeros and 
 ### microVMs are out
 
 The install uses the gVisor sandbox class only. The chart sets `sandboxClasses: gvisor` and a value cannot change it. A microVM class on a cluster that is not kind needs a cloud CLI to stage its assets, which the image does not hold. Use gVisor until this changes.
+
+## Run workers
+
+The `substrate-workers` chart renders one WorkerPool in the release namespace. One release is one pool. The worker image is the gVisor `ateworker` image of the Substrate release, pinned by tag and digest. The tag must match the control plane release.
+
+To run a pool:
+
+1. Copy `charts/substrate-workers/ci/aws-values.yaml` or `charts/substrate-workers/ci/onprem-values.yaml`.
+2. Set `pool.name`, `pool.labels` and the node selector. The `workerSelector` of an actor matches the pool labels.
+3. Set `workers.replicas`, `workers.cpu` and `workers.memory`.
+4. Install the chart in the namespace of the pool.
+
+### Sizing
+
+Sizing comes only from values. The chart sets the limits equal to the requests, so each worker pod is Guaranteed. A worker needs room beside the control-plane pods on the same nodes: after the control plane has its share, a node must have `cpu` and `memory` free for each worker that runs on it.
+
+The `workers` values size the pool only. The install pod is sized in the `substrate-install` values. The control-plane database is not configurable yet: upstream sets its resources in the manifests, at 2 CPUs and 1 GiB of memory. On a small node, count these in the room that the control plane takes.
+
+### One CPU model for each pool
+
+Use one CPU model in a WorkerPool. A gVisor golden snapshot is pinned to the CPU feature set of the worker that made the checkpoint (upstream issue #1657). A worker with another feature set cannot restore it.
+
+- AWS: do not mix instance types in a pool. One instance type can still span processor generations (an `m5` runs on Skylake or Cascade Lake). Use an instance family with a single processor generation, such as `m6i`, or pin the hardware in another way. Select it with `pool.nodeSelector`, or use one node group for the pool.
+- Proxmox: set a fixed VM CPU type, such as a named model. Do not use `host` on mixed hardware, because `host` passes the real features of each physical CPU.
+
+Use a second pool, with its own CPU model, for other hardware.
+
+### Node requirements
+
+- The Pod Certificate and ClusterTrustBundle APIs are on.
+- The cluster has a default StorageClass.
+- The namespace of the workers must use the `privileged` Pod Security level. The Baseline level blocks the host path volume and the `spc_t` SELinux type too. `ate-system` must not use the restricted level.
+- Nested virtualization is needed only for microVMs. They are out for now.
+
+### SELinux nodes
+
+On nodes that enforce SELinux (the RHEL family), worker pods run as `container_t`. They cannot write the `/var/lib/ate` host path, and the `ateworker` exits at start (upstream issue #3597, open). The WorkerPool has no `securityContext` field and the control plane creates the pods, so only admission can fix it.
+
+Set `selinux.enabled` to `true`. The chart then renders a `MutatingAdmissionPolicy` and its binding. They set the SELinux type `spc_t` on the pods that carry the label `ate.dev/worker-pool=<pool name>`, in the release namespace. No other pod is matched. The policy uses an `objectSelector` and no match conditions. It has `reinvocationPolicy: IfNeeded` and `failurePolicy: Fail`. The mutation is an `ApplyConfiguration` merge, so it works when the pod has no `securityContext` yet.
+
+The switch is off by default. Verify that your nodes need it before you turn it on.
+
+A policy takes a few seconds to become active, and a pod that exists before then stays unpatched. The policy objects carry the Argo CD sync wave `-1`, so Argo CD applies them before the pool. With Helm, install the chart with `workers.replicas` set to `0`, wait a few seconds, then set the real value. If a worker pod started without the patch, delete the pod.
+
+Minimum version: Kubernetes 1.36. The API is `admissionregistration.k8s.io/v1` `MutatingAdmissionPolicy`, which is GA and on by default from 1.36. On 1.34 and 1.35 it is `v1beta1` behind the feature gate `MutatingAdmissionPolicy` and the runtime-config of that API, and the chart does not render that version.
+
+### Observability
+
+Set `observability.enabled` to `true` to render PodMonitors and dashboard ConfigMaps. It is off by default. With it off, the chart renders no `monitoring.coreos.com` object or other provider CRD, so a cluster without the Prometheus Operator installs with it off. A unit test verifies this.
+
+Upstream sends its metrics over OTLP to a collector, not to a Prometheus scrape. Only some components also serve a Prometheus endpoint. The chart creates one PodMonitor for each of these, from `observability.components`: `ate-api-server`, `atelet`, `ate-controller` (a pull listener on port 8080, on only when the controller does not push metrics) and the Envoy metrics port of `atenet-router` and `atenet-egress`. Set `observability.podMonitorLabels` to the labels your Prometheus selects. The router and egress components have two entries each: the Envoy port and the `metrics` port. Edit `components` if a port differs on your release.
+
+The PodMonitors select the control plane, not the pool. Each release with `observability.enabled` renders the same ones. Turn observability on in one release only.
+
+Upstream v1.0.0 ships no Grafana dashboard. Add your own in `observability.dashboards`: each key is a file name and each value is the dashboard JSON. The chart makes one ConfigMap for each, with the label `grafana_dashboard: "1"`. Change the label with `observability.dashboardLabel` to match your Grafana sidecar.
 
 ## Register actors
 
@@ -186,7 +242,7 @@ The test does these steps, in order:
 2. It creates one kind node with the cluster settings that Substrate needs: the pod certificate and cluster trust bundle APIs.
 3. It deploys RustFS and creates the snapshot bucket. RustFS 1.0.x cannot create a bucket itself, so a Job with the pinned AWS CLI image does it. The keys are fixed test values in a Secret that the test creates.
 4. It installs the `substrate-install` chart with the `s3-compatible` storage profile and waits for the install Job to finish.
-5. It starts a worker pool, installs the `substrate-actor` chart and the `substrate-registration` chart for one actor, and checks that the actor registers.
+5. It installs the `substrate-workers` chart for the worker pool, installs the `substrate-actor` chart and the `substrate-registration` chart for one actor, and checks that the actor registers.
 6. It resumes the actor and sends it requests through `kubectl ate proxy`. It suspends the actor, drops its node-local snapshot with a revert and resumes it again. The test verifies that the memory and root filesystem counters continue and that atelet downloaded the snapshot from RustFS. Then it suspends the actor. The test fails if the actor is not `ACTOR_STATE_RUNNING` after a resume or not `ACTOR_STATE_SUSPENDED` after a suspend.
 7. It runs the install Job and the registration Job again, and verifies that nothing changes.
 8. It verifies that the live egress policy equals the rules that the chart renders.
@@ -199,7 +255,8 @@ The files are in `tests/integration/`: `run.sh` runs the steps, and the manifest
 The test does not cover:
 
 - IAM-based S3 access. It uses static keys against RustFS. The `aws` profile is checked only by the render tests and by `make test-image`.
-- SELinux enforcement. The kind node does not enforce it, and the repo has no SELinux policy yet.
+- SELinux enforcement. The kind node does not enforce it, so the test cannot show that `spc_t` lets a worker write `/var/lib/ate`. It turns the policy on and verifies only that the admission policy sets `spc_t` on both worker pods.
+- Observability. The cluster has no Prometheus Operator. The unit tests cover the render only.
 - The CPU model of a Proxmox worker pool and the restore of a golden snapshot on another CPU. The cluster has one node.
 - microVMs. The install uses the gVisor class only.
 - Credential injection. The test sets the credential provider to off. The sample actor has egress rules without credentials.
@@ -227,11 +284,12 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | gVisor class only, because microVM asset staging needs a cloud CLI off kind | none known | The `sandboxClasses` setting in the chart, once the install can stage microVM assets |
 | Storage profile patch `20-storage-profile`: the chart sets an explicit `s3` backend on both object-store plugin sidecars, because the default is GCS and the settings are repeated per container | #3668 (explicit backend), #2378 (one place for the settings) | The generated patch, and set the backend in values |
 | `storage.transferGSAName` and `gcp.projectID` placeholders, and `context`, because `ate-setup` models a cluster that is not kind as GCS | #3651 (open PR: `storage.backend=external` and `--component` for provider storage, not in v1.0.0) | The placeholders, and move the profile to a `--component` |
-| Opt-in SELinux admission policy (planned) | #3597 | The policy |
+| Opt-in SELinux admission policy `selinux.enabled` in the `substrate-workers` chart: worker pods run as `container_t` on SELinux nodes and cannot write `/var/lib/ate`, and a WorkerPool has no `securityContext` | #3597 | The policy and the switch, once worker pods get the right SELinux type without admission |
 | Idle-suspend CronJob (planned) | #424, #483 | The CronJob, and use the upstream policy |
-| One CPU model for each WorkerPool, as a documented rule (planned) | #1657 | The rule |
+| One CPU model for each WorkerPool, as a documented rule | #1657 | The rule |
+| The control-plane database resources are fixed in the upstream manifests (2 CPUs, 1 GiB) and no chart value sets them | none known | The note in the sizing section, once the install chart can set them |
 | Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |
-| PodMonitors for clusters without the GKE `PodMonitoring` CRD (planned) | #2589 | The PodMonitors |
+| PodMonitors for clusters without the GKE `PodMonitoring` CRD, behind `observability.enabled` in the `substrate-workers` chart | #2589 | The PodMonitors |
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
 | RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
 | Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |

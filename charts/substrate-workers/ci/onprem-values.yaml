@@ -1,0 +1,19 @@
+# On-prem profile on RHEL-family nodes: SELinux policy and observability on.
+pool:
+  name: agents
+  labels:
+    workload: pr-review
+  nodeSelector:
+    worker-cpu-model: fixed
+workers:
+  replicas: 2
+  cpu: "2"
+  memory: 4Gi
+selinux:
+  enabled: true
+observability:
+  enabled: true
+  podMonitorLabels:
+    release: prometheus
+  dashboards:
+    substrate.json: '{"title":"Substrate","panels":[]}'

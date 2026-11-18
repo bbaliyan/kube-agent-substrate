@@ -1,0 +1,29 @@
+apiVersion: ate.dev/v1
+kind: WorkerPool
+metadata:
+  name: {{ include "substrate-workers.poolName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "substrate-workers.labels" . | nindent 4 }}
+    {{- with .Values.pool.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .Values.workers.replicas }}
+  workerImage: {{ printf "%s:%s@%s" .Values.image.repository .Values.image.tag .Values.image.digest }}
+  sandboxClasses:
+    - name: {{ .Values.sandboxClass }}
+  template:
+    {{- with .Values.pool.nodeSelector }}
+    nodeSelector: {{ toJson . }}
+    {{- end }}
+    {{- with .Values.pool.tolerations }}
+    tolerations: {{ toJson . }}
+    {{- end }}
+    resources:
+      requests:
+        cpu: {{ .Values.workers.cpu | quote }}
+        memory: {{ .Values.workers.memory | quote }}
+      limits:
+        cpu: {{ .Values.workers.cpu | quote }}
+        memory: {{ .Values.workers.memory | quote }}

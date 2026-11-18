@@ -1,0 +1,5 @@
+apiVersion: v2
+name: substrate-workers
+description: Runs an Agent Substrate worker pool, with an opt-in SELinux admission policy and optional observability
+type: application
+version: 0.1.0

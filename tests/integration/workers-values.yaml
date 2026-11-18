@@ -1,0 +1,15 @@
+# The worker pool of the sample actor, sized for one kind node.
+# The pool name and labels match the sample actor in actors-values.yaml.
+# The SELinux policy is on to verify that the admission policy patches the worker pods.
+pool:
+  name: counter
+  labels:
+    workload: counter
+workers:
+  # Two workers: the golden snapshot holds one while the actor runs on the other.
+  # The actor asks for 1 CPU, and a worker must offer that, so cpu is "1".
+  replicas: 2
+  cpu: "1"
+  memory: 1Gi
+selinux:
+  enabled: true

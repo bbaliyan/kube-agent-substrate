@@ -99,7 +99,7 @@ wait_for() {
 
 # kubectl-ate with the token of the registration service account, like the Job.
 ate() {
-  kubectl-ate --token-file "$tmp/token" "$@"
+  kubectl-ate --preview --token-file "$tmp/token" "$@"
 }
 refresh_token() {
   kubectl -n "$release_ns" create token substrate-registration --audience "api.ate-system.svc" --duration 2h >"$tmp/token"

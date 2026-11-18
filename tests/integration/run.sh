@@ -173,7 +173,7 @@ step "Build the images in the background"
 docker rm -f "$registry_name" >/dev/null 2>&1 || true
 docker run -d --name "$registry_name" -p 127.0.0.1::5000 "$(pinned registryImage)" >/dev/null
 registry_port="$(docker port "$registry_name" 5000/tcp | head -1 | sed 's/.*://')"
-push_base="localhost:$registry_port"
+push_base="127.0.0.1:$registry_port"
 make --no-print-directory image IMAGE="$push_base/substrate-install:$substrate_tag" >"$logs/build-install.log" 2>&1 &
 build_install=$!
 make --no-print-directory image-registration REGISTRATION_IMAGE="$push_base/substrate-registration:$substrate_tag" >"$logs/build-registration.log" 2>&1 &

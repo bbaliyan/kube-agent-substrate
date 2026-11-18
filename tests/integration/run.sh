@@ -171,7 +171,10 @@ fi
 step "Build the images in the background"
 # The three builds share nothing, so they run together. The registry takes the pushes.
 docker rm -f "$registry_name" >/dev/null 2>&1 || true
-docker run -d --name "$registry_name" -p 127.0.0.1::5000 "$(pinned registryImage)" >/dev/null
+# The registry lives on the network of the kind nodes from the start. Connecting a container to a second
+# network later broke its published port on a GitHub runner.
+docker network inspect "$network" >/dev/null 2>&1 || docker network create "$network" >/dev/null
+docker run -d --name "$registry_name" --network "$network" -p 127.0.0.1::5000 "$(pinned registryImage)" >/dev/null
 registry_port="$(docker port "$registry_name" 5000/tcp | head -1 | sed 's/.*://')"
 push_base="127.0.0.1:$registry_port"
 make --no-print-directory image IMAGE="$push_base/substrate-install:$substrate_tag" >"$logs/build-install.log" 2>&1 &
@@ -190,7 +193,6 @@ docker exec "$node" sysctl -e -w net.ipv6.conf.all.proxy_ndp=1 >/dev/null
 
 # Pods and atelet reach the registry by its address on the cluster network.
 # atelet pulls the actor image itself over plain HTTP, and only for a private address.
-docker network connect "$network" "$registry_name"
 registry_ip="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$network\").IPAddress}}" "$registry_name")"
 [ -n "$registry_ip" ] || fail "the registry has no address on the network $network"
 docker exec "$node" mkdir -p "/etc/containerd/certs.d/$registry_ip:5000"
@@ -212,7 +214,7 @@ digest_of() {
     sleep 5
   done
   cat "$logs/push-$1.log" >>"$logs/push.log"
-  { docker ps -a --filter "name=$registry_name"; docker logs --tail 20 "$registry_name"; } >>"$logs/push.log" 2>&1 || true
+  { docker ps -a --filter "name=$registry_name"; docker port "$registry_name"; curl -sv -m 5 "http://$push_base/v2/"; docker logs --tail 5 "$registry_name"; } >>"$logs/push.log" 2>&1 || true
   tail -20 "$logs/push.log"
   fail "docker push of $1 failed three times"
 }

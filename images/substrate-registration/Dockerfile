@@ -1,9 +1,9 @@
-# The registration image: the tools that the substrate-registration chart runs.
-# kubectl-ate, jq and bash. Nothing is downloaded when a container starts.
+# The registration image: the tools that the substrate-registration and substrate-idle-suspend charts run.
+# kubectl-ate, jq, curl and bash. Nothing is downloaded when a container starts.
 #
 # To change the Substrate version, set SUBSTRATE_TAG and SUBSTRATE_COMMIT together.
 # The build fails if the tag no longer names the commit.
-# To change jq, set the version and both checksums together. The build
+# To change jq or curl, set the version and both checksums together. The build
 # fails on a mismatch. Renovate cannot update the checksums, so these pins have no
 # renovate comment. Take the checksums from the sha256sum.txt of the jq release.
 #
@@ -24,6 +24,11 @@ ARG SUBSTRATE_COMMIT=b34fbee742906494b5eb4f1f36987176bf8770a4
 ARG JQ_VERSION=jq-1.8.2
 ARG JQ_SHA256_AMD64=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
 ARG JQ_SHA256_ARM64=8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309
+# curl is for the substrate-idle-suspend chart. It is a static build (musl), so no RUN step is
+# needed in the target architecture. To change it, set the version and both checksums together.
+ARG CURL_VERSION=8.23.0-1
+ARG CURL_SHA256_AMD64=2e0c54ba696afd0df1e899e4344fa63d53d73107f9ac08173314d9be85bc76fd
+ARG CURL_SHA256_ARM64=e20f26e5b87c1883608f286f86bdabf39d3b8556e8a8e75dfe205e14bd206199
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 
 RUN git clone --quiet --depth 1 --branch "${SUBSTRATE_TAG}" https://github.com/agent-substrate/substrate /src \
@@ -44,12 +49,29 @@ RUN set -eu; \
     echo "${jq_sha}  /out/jq" | sha256sum -c -; \
     chmod +x /out/jq
 
+# xz-utils runs on the build platform, so it needs no emulation. Only the archive is for the target.
+RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) curl_arch=x86_64; curl_sha="${CURL_SHA256_AMD64}" ;; \
+      arm64) curl_arch=aarch64; curl_sha="${CURL_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    file="curl-linux-${curl_arch}-musl-${CURL_VERSION}.tar.xz"; \
+    curl -fsSL -o "/tmp/${file}" "https://github.com/stunnel/static-curl/releases/download/${CURL_VERSION}/${file}"; \
+    echo "${curl_sha}  /tmp/${file}" | sha256sum -c -; \
+    tar -xJf "/tmp/${file}" -C /out curl; \
+    chmod +x /out/curl
+
 FROM ${RUNTIME_IMAGE}
 # renovate: datasource=github-releases depName=agent-substrate/substrate
 ARG SUBSTRATE_TAG=v1.0.0
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Registers actors in Agent Substrate ${SUBSTRATE_TAG}" \
       org.opencontainers.image.licenses="Apache-2.0"
-COPY --from=build /out/kubectl-ate /out/jq /usr/local/bin/
+COPY --from=build /out/kubectl-ate /out/jq /out/curl /usr/local/bin/
+# curl needs the CA certificates to verify the TLS of Prometheus. The slim base has none.
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
 ENV HOME=/tmp

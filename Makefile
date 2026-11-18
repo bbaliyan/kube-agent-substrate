@@ -19,9 +19,9 @@ REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
+.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
-test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract commit-messages
+test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract commit-messages
 
 test-fast: secrets
 
@@ -51,6 +51,10 @@ test-charts:
 # The registration script against a stub of kubectl-ate: the idle gate and the no-change rerun.
 test-register:
 	bash charts/substrate-registration/tests/register_test.sh
+
+# The idle-suspend script against stubs of kubectl-ate and curl: idle, each busy signal, each query error, and the actors that are not running or missing.
+test-idle-suspend:
+	bash charts/substrate-idle-suspend/tests/idle_suspend_test.sh
 
 # The registration chart must plan the template names and egress hashes that the substrate-actor chart renders.
 test-contract:
@@ -120,10 +124,10 @@ publish:
 image-registration:
 	docker build $(if $(PLATFORM),--platform $(PLATFORM)) --tag "$(REGISTRATION_IMAGE)" images/substrate-registration
 
-# Runs the tools of the image: kubectl-ate reports its version and jq parses.
+# Runs the tools of the image: kubectl-ate reports its version, jq parses and curl starts.
 test-image-registration: image-registration
 	docker run --rm --entrypoint sh "$(REGISTRATION_IMAGE)" -euc '\
-	  kubectl-ate --version && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null'
+	  kubectl-ate --version && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null && curl --version >/dev/null'
 
 # Pushes the multi-arch registration image and prints its digest. CI runs it on main only.
 publish-registration:

@@ -8,6 +8,7 @@ Helm charts that run [Agent Substrate](https://github.com/agent-substrate/substr
 |---|---|
 | `substrate-install` | Installs or upgrades the Substrate control plane with a Job that runs `ate-setup` from a pinned install image |
 | `substrate-registration` | Registers the actors of the `substrate-actor` chart in a running control plane with a Job that runs `kubectl-ate` from a pinned registration image |
+| `substrate-idle-suspend` | Suspends an idle running actor after a set idle time with a CronJob that runs `kubectl-ate` from the registration image. Delete it when upstream ships its own idle policy |
 | `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist, credential injection, webhook shim and ingress |
 | `substrate-workers` | Runs a WorkerPool with its sizing, an opt-in SELinux admission policy and optional PodMonitors and dashboards |
 
@@ -211,7 +212,93 @@ Port-forward RBAC cannot name a pod, so the Role covers every pod in the namespa
 
 ### Publish the registration image
 
-CI pushes the multi-arch image to `ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration` on every push to `main`, like the install image. The image holds `kubectl-ate`, `jq` and `bash`. The build compiles `kubectl-ate` from the release tag and checks the commit. It downloads `jq` for each architecture and verifies a pinned SHA-256 checksum. A running Job downloads nothing. `make test-image-registration` runs the tools of the image.
+CI pushes the multi-arch image to `ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration` on every push to `main`, like the install image. The image holds `kubectl-ate`, `jq`, `curl` and `bash`. The `substrate-idle-suspend` chart uses the same image. The build compiles `kubectl-ate` from the release tag and checks the commit. It downloads `jq` for each architecture and verifies a pinned SHA-256 checksum. A running Job downloads nothing. `make test-image-registration` runs the tools of the image.
+
+## Suspend idle actors
+
+Agent Substrate v1.0.0 never suspends an idle actor. Suspend is an API call, and the caller must make it (upstream issues #424 and #483). The `substrate-idle-suspend` chart makes this call for the actors that you list. It is a separate chart, so you can delete it when upstream ships its own policy.
+
+The chart runs one CronJob. The CronJob uses the registration image, which holds `kubectl-ate`, `jq` and `curl`. It has a service account of its own. `concurrencyPolicy` is `Forbid`, and a failed run is not retried: the next schedule is the retry.
+
+To use it:
+
+1. Run Prometheus, and make it scrape the router, the egress proxy, ate-api-server and atelet (see "The signals").
+2. Copy `charts/substrate-idle-suspend/ci/aws-values.yaml` or `onprem-values.yaml`.
+3. Set `actors` to the atespace and name of each actor, `prometheus.url`, and `image.digest` to the digest of the registration image.
+4. Set `schedule` and `idleMinutes`. The defaults are every 5 minutes and 30 minutes of idle time. `idleCpuCores` is the CPU use that still counts as idle. The default is 0.05 cores.
+5. Grant the service account of the CronJob the `editor` role in the atespace of each actor. The principal is `user:system:serviceaccount:<release namespace>:<service account name>`. The service account name is `<release>-substrate-idle-suspend`, or only `<release>` if the release name already contains `substrate-idle-suspend`, cut to 40 characters. The value `serviceAccount.name` replaces it. To read the real name, run `kubectl -n <release namespace> get cronjob -o jsonpath='{.items[*].spec.jobTemplate.spec.template.spec.serviceAccountName}'`. Add the principal to the access policy of the atespace with `kubectl ate update access-policy -a <atespace>`. The chart cannot do this for you, because the control plane keeps access policies in its database, and it has no value for it. The account can then read and suspend the actors of that atespace and nothing else. Do not make it a bootstrap owner.
+6. Install the chart, or sync it with Argo CD.
+
+If Prometheus needs a bearer token, put the token in a Secret and set `prometheus.bearerTokenSecret.name`. If it uses a private CA, set `prometheus.caSecret.name`.
+
+### How a run works
+
+For each actor in `actors`, the script does these steps:
+
+1. It reads the state of the actor with `kubectl ate get actor`. It does not read the state from metrics, because a series can outlive the actor.
+2. If the actor does not exist, the run fails with a clear message.
+3. If the actor is not `ACTOR_STATE_RUNNING`, it does nothing.
+4. It reads the signals from Prometheus (see below).
+5. If every signal says idle, it runs `kubectl ate suspend actor`. If any signal says busy, it does nothing.
+
+The chart has no declarative option for step 5: the control plane has no resource for a suspend. The header of the script says so.
+
+### The signals
+
+Substrate puts no actor name on a metric, because that would give every actor its own series. The metrics carry the template of the actor. The substrate-actor chart gives each actor its own template, so a signal that carries the template is a signal of that actor. If you share one template between actors, a busy actor keeps its neighbours awake. This fails safe.
+
+All names are the OpenTelemetry names of the Substrate metric registry (`docs/metrics/registry/metrics.yaml` of the release) after the Prometheus conversion.
+
+| Signal | Query reads | Busy when |
+|---|---|---|
+| `health` (four queries) | `envoy_server_live` for `inflight`, and `go_memstats_alloc_bytes` with the pod label `app` of the router (`routed`), of ate-api-server (`resumed`) and of atelet (`cpu`) | A result that is not above 0 fails the run. This proves that each source of a signal is scraped. Without it, a renamed or unscraped series would read as silence |
+| `routed` | `atenet_router_route_duration_seconds_count` for the template | The count changed in the idle time. The router and the egress proxy record every routed request here |
+| `resumed` | `ate_actor_lifecycle_operation_duration_seconds_count` with `ate_actor_operation_name="resume"` for the template | ateapi resumed the actor in the idle time. The actor did not rest for the full time |
+| `inflight` | `envoy_cluster_upstream_rq_active` for the `actor_*` clusters of the router | A request or an open tunnel was active at any time in the idle time. Envoy has no series for one actor, so this signal is the same for every actor: one open tunnel of any client keeps every watched actor busy. A tunnel that nobody uses closes after 60 seconds |
+| `cpu` | `ate_actor_stats_cpu_time_seconds_total` for the template | The rate over the idle time is above `idleCpuCores` |
+
+Upstream v1.0.0 has no metric or field for the last activity of an actor. The `routed` and `resumed` queries compare the count now with the count one idle time ago. They do not use `increase()`, because a counter that starts at 1 has no earlier sample, and `increase()` would read 0 for the first request.
+
+The queries are values (`queries.*`). Change them if your backend names the metrics another way, for example with Google Managed Prometheus. The script replaces `@ATESPACE@`, `@TEMPLATE@` and `@WINDOW@`.
+
+The check of an actor ends at the first busy signal, so the later queries do not run. An actor that was just resumed has no CPU series yet, and this keeps it from failing the run.
+
+### The fail-safe rule
+
+The script suspends an actor only when all of these are true:
+
+- `kubectl ate` read the actor and the state is `ACTOR_STATE_RUNNING`.
+- Every query returned exactly one number.
+- Each `health` query shows that its source is scraped.
+- Every signal says idle.
+
+Any other result ends the run with a non-zero exit code and suspends nothing for that actor. This includes a refused query, an HTTP error, no sample, many samples, a value that is not a number, a template name that is not a plain name, and a failed `kubectl ate` call. One failing actor does not stop the check of the next actor, and the run still fails at the end.
+
+The `inflight` signal is fleet-wide and counts tunnels. This is the safe side: it can delay a suspend, never cause one. The cost is that a long-lived tunnel of one client holds back the suspend of every actor. If that is too coarse for you, narrow the `inflight` query to the clusters that you use. Do not remove it.
+
+A request can still arrive between the last query and the suspend. A request that is younger than one scrape interval is not in the data yet. The idle time makes this rare, not impossible, so keep `idleMinutes` well above the scrape interval. The router parks a request for a suspended actor until the actor has resumed, so a request that arrives after the suspend is not lost. Upstream v1.0.0 documents no drain of a request that is already running on the actor, so a suspend at that moment can cut it.
+
+### What the kind harness verifies
+
+`make test-integration` deploys a minimal Prometheus that scrapes the router, the egress proxy and atelet. The harness installs the chart with an idle time of 1 minute and starts each run of the CronJob by hand. It verifies:
+
+- The service account of the CronJob, with only the editor role of the atespace, can read and suspend the actor.
+- A request resumes the suspended actor. A run right after it reports the actor as busy and leaves it running.
+- The harness closes the tunnel of its proxy and waits for the idle time. Then the queries for the five signals return numbers, and all of them say idle.
+- After the idle time, a run with a query that Prometheus refuses fails and leaves the idle actor running.
+- With the default queries, the next run suspends the idle actor.
+- A run on a suspended actor does nothing.
+- The next request resumes the actor, and its counters continue (they do not restart).
+- The default queries return real series: the metric names above exist in the kind cluster.
+
+The harness does not verify:
+
+- The Kubernetes schedule. The harness turns it off and starts each run by hand.
+- A busy actor because of CPU alone, and a request in flight. No step creates them. The stub test of the script covers these branches, not the real signals.
+- Prometheus with authentication, TLS or Google Managed Prometheus. The harness Prometheus has none of them, and it scrapes every 5 seconds.
+- An idle time of 30 minutes. The harness uses 1 minute.
+
+`make test-idle-suspend` runs the script against stubs of `kubectl-ate` and `curl`. It covers an idle actor, each busy signal, each kind of query error, an actor that is not running and an actor that does not exist.
 
 ## Define an actor
 
@@ -226,7 +313,7 @@ The values schema rejects an image reference that has no digest.
 
 ## Checks
 
-Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets. It also runs the registration script against a stub of `kubectl-ate` (`make test-register`) and checks that the actor and registration charts agree on template names (`make test-contract`). The stub tests the idle gate and the no-change rerun, not the real client.
+Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets. It also runs the registration script against a stub of `kubectl-ate` (`make test-register`) and checks that the actor and registration charts agree on template names (`make test-contract`). The stub tests the idle gate and the no-change rerun, not the real client. `make test-idle-suspend` runs the script of the `substrate-idle-suspend` chart against stubs of `kubectl-ate` and `curl`.
 
 Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the install image and runs the patch steps on the real release checkout. It also applies the generated storage patch of each `ci` values file and verifies the backend on both plugin sidecars. CI runs it, and builds the arm64 image. CI does not push the image yet.
 
@@ -249,6 +336,7 @@ The test does these steps, in order:
 9. It changes the template and verifies that the suspended actor moves in place with the same identity and that its counters restart from the new template. The chart has no durable volumes, so the test does not verify that a volume survives the move.
 10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
 11. It changes only the egress rules and verifies that the policy updates in place.
+12. It deploys a minimal Prometheus and the `substrate-idle-suspend` chart, and verifies that a busy actor stays, a failing signal query suspends nothing, an idle actor is suspended and the next request resumes it. See "Suspend idle actors".
 
 The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. A kind node with 4 GiB of memory and 2 CPUs is enough: it peaked at 4.2 GiB, including page cache, with no OOM kill.
 
@@ -285,7 +373,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | Storage profile patch `20-storage-profile`: the chart sets an explicit `s3` backend on both object-store plugin sidecars, because the default is GCS and the settings are repeated per container | #3668 (explicit backend), #2378 (one place for the settings) | The generated patch, and set the backend in values |
 | `storage.transferGSAName` and `gcp.projectID` placeholders, and `context`, because `ate-setup` models a cluster that is not kind as GCS | #3651 (open PR: `storage.backend=external` and `--component` for provider storage, not in v1.0.0) | The placeholders, and move the profile to a `--component` |
 | Opt-in SELinux admission policy `selinux.enabled` in the `substrate-workers` chart: worker pods run as `container_t` on SELinux nodes and cannot write `/var/lib/ate`, and a WorkerPool has no `securityContext` | #3597 | The policy and the switch, once worker pods get the right SELinux type without admission |
-| Idle-suspend CronJob (planned) | #424, #483 | The CronJob, and use the upstream policy |
+| The `substrate-idle-suspend` chart: a CronJob suspends an idle running actor, because Substrate v1.0.0 suspends no idle actor and leaves it to the caller. The planned actor-side `/suspend` endpoint of v1.1 needs the actor to call it, which a third-party image cannot do | #424 (no automatic suspend of idle actors), #483 (idle policy and the actor-side suspend endpoint) | The whole chart, and `curl` in `images/substrate-registration`, once upstream suspends idle actors by its own policy |
 | One CPU model for each WorkerPool, as a documented rule | #1657 | The rule |
 | The control-plane database resources are fixed in the upstream manifests (2 CPUs, 1 GiB) and no chart value sets them | none known | The note in the sizing section, once the install chart can set them |
 | Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |

@@ -22,7 +22,7 @@ To install:
 3. Set `image.digest` to the digest of the published install image.
 4. Install the chart with your values file, or sync it with Argo CD.
 
-The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images` and `sandboxClasses`. Set `config.storage.snapshotLocation`. It is required, because `ate-setup` stops without it, and the schema rejects an empty value. The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`.
+The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images`, `sandboxClasses` and `context`. It also derives `storage.snapshotLocation` and `storage.bucketName` from the storage profile (see Storage profiles). The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`.
 
 ### How the Job works
 
@@ -41,6 +41,45 @@ The Job and its config map carry a hash of the whole pod spec in their names: th
 A patch is a directory in `charts/substrate-install/patches/`. It holds one kustomize `Component` in `kustomization.yaml`. The chart applies the directories in the order of their names, so start each name with a number.
 
 To add a patch, add a directory. The chart packs it into the config map and the Job applies it. The Job needs no other change.
+
+### Storage profiles
+
+Set `storage.profile` to `aws` or `s3-compatible`. Any other value fails the render. The chart generates the patch `20-storage-profile` from the `storage` values and the Job applies it with the static patches. You never edit manifests by hand.
+
+The patch sets the backend on the two containers that read the object store settings in release v1.0.0:
+
+- the `objectstore-plugin` sidecar of `ate-api-server`
+- the `objectstore-plugin` sidecar of `atelet`
+
+Both must agree. If they differ, the API server deletes or copies snapshots in one bucket while atelet writes to another. Upstream issue #2378 lists a third container, the `atelet` container. In v1.0.0 that container exits if `ATE_STORAGE_BACKEND` is set on it, because the plugin sidecar now does the asset downloads. The chart therefore sets nothing on it. Test operations in the patch stop the install if upstream moves the sidecar.
+
+`ATE_STORAGE_BACKEND` is always explicit (`s3`). The upstream default is GCS.
+
+| Profile | Environment of both sidecars |
+|---|---|
+| `aws` | `ATE_STORAGE_BACKEND`, `AWS_REGION`. No static keys: the pods use the IAM role of the node. |
+| `s3-compatible` | The same, plus `AWS_ENDPOINT_URL`, `AWS_S3_USE_PATH_STYLE`, and `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from a `secretKeyRef`. |
+
+Set `storage.bucket` and `storage.region` for both profiles. The chart sets the snapshot location to `s3://<bucket>/`. You can set `config.storage.snapshotLocation` to a prefix inside the bucket. A location in another bucket fails the render.
+
+For `s3-compatible`, also set `storage.s3Compatible.endpoint` and, if the store needs it, `pathStyle`. Give the keys in one of two ways:
+
+1. Set `credentials.secretName` to an existing Secret in the control plane namespace. The Secret holds the keys named by `accessKeyKey` and `secretKeyKey`.
+2. Set `credentials.externalSecret.enabled` to `true`, with `storeName`, `storeKind` and the two remote keys. The chart renders an ExternalSecret that creates the Secret. The default Secret name is `substrate-s3-credentials`.
+
+The chart stores no key. The ExternalSecret lives in `config.namespace`, which `ate-setup` creates. That namespace must exist before the ExternalSecret syncs, and the Secret must exist before the Job runs.
+
+`ate-setup` treats a cluster that is not kind as GCS and refuses to deploy without `storage.transferGSAName` and `gcp.projectID`. S3 uses neither. The chart keeps the neutral placeholder `unused-placeholder` for both in `values.yaml`. A project value also makes `ate-setup` fetch GKE credentials unless a context is set, so the chart sets `context` to the context of its own kubeconfig. Do not put real values in these keys.
+
+#### AWS: instance metadata
+
+The pods read the node credentials through the instance metadata service (IMDS). The nodes need IMDSv2 with a hop limit of 2, because a pod is one network hop past the node. A hop limit of 1 blocks the pods. This was not verified in any kube-compute node module. If a module sets a hop limit of 1, raise a kube-compute ticket.
+
+#### Bucket expiry
+
+Add one lifecycle rule to the bucket: abort incomplete multipart uploads after a few days. Do not add a blanket expiry rule for objects. A suspended actor keeps its state in a snapshot object, and that state can rest for months. An expiry rule would delete it.
+
+Snapshot objects that no actor refers to any more are not removed (upstream issue #610). They need a separate cleanup that this repo does not have.
 
 ### Publish the image
 
@@ -69,7 +108,7 @@ The values schema rejects an image reference that has no digest.
 
 Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets.
 
-Run `make test-image` on a host with Docker. It builds the install image and runs the patch steps on the real release checkout. CI runs it, and builds the arm64 image. CI does not push the image yet.
+Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the install image and runs the patch steps on the real release checkout. It also applies the generated storage patch of each `ci` values file and verifies the backend on both plugin sidecars. CI runs it, and builds the arm64 image. CI does not push the image yet.
 
 The render lint is a quick lint. It runs `helm template` and `kubeconform` for each file in `charts/*/ci/`: the `aws` and `onprem` profiles, each with one actor and with several. It does not prove that an install works.
 
@@ -89,11 +128,12 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | Install Job around `ate-setup`, with its image and patches | #3158, #3170, #3686, #3240 | The Job and the image, and use the upstream Helm charts |
 | Drop the atelet image credential provider flags and host mounts, because RKE2 nodes have no provider | #2669, #3667 | The patch `10-atelet-no-credential-provider` |
 | gVisor class only, because microVM asset staging needs a cloud CLI off kind | none known | The `sandboxClasses` setting in the chart, once the install can stage microVM assets |
-| Storage profile patches for S3 (planned) | #3668, #2378 | The patches, and set the backend in values |
+| Storage profile patch `20-storage-profile`: the chart sets an explicit `s3` backend on both object-store plugin sidecars, because the default is GCS and the settings are repeated per container | #3668 (explicit backend), #2378 (one place for the settings) | The generated patch, and set the backend in values |
+| `storage.transferGSAName` and `gcp.projectID` placeholders, and `context`, because `ate-setup` models a cluster that is not kind as GCS | #3651 (open PR: `storage.backend=external` and `--component` for provider storage, not in v1.0.0) | The placeholders, and move the profile to a `--component` |
 | Opt-in SELinux admission policy (planned) | #3597 | The policy |
 | Idle-suspend CronJob (planned) | #424, #483 | The CronJob, and use the upstream policy |
 | One CPU model for each WorkerPool, as a documented rule (planned) | #1657 | The rule |
-| Bucket expiry rule for orphaned snapshots (planned) | #610 | The rule |
+| Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Orphaned snapshots need a separate cleanup | #610 | The note, once upstream removes orphaned snapshots |
 | PodMonitors for clusters without the GKE `PodMonitoring` CRD (planned) | #2589 | The PodMonitors |
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
 | RustFS with large sparse multipart uploads (planned, unverified) | #3921 | The note, once a test shows it works |

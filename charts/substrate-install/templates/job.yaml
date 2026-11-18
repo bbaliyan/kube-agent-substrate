@@ -32,10 +32,11 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-        # Step 1: copy the checkout from the image to a writable directory.
+        # Step 1: copy the checkout from the image to a writable directory. Not cp -a: the
+        # account is not the owner of the volume, so it cannot set the time of the directory.
         - name: seed
           image: {{ $image }}
-          command: [cp, -a, /opt/substrate/., /work/]
+          command: [cp, -R, /opt/substrate/., /work/]
           securityContext:
             {{- include "substrate-install.containerSecurity" . | nindent 12 }}
           volumeMounts:

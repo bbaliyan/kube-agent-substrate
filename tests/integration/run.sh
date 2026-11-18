@@ -229,7 +229,7 @@ counter_image="$cluster_base/counter@$counter_digest"
 test "$(sed -n 's/^ARG SUBSTRATE_COMMIT=//p' tests/integration/counter/Dockerfile)" = "$(sed -n 's/^ARG SUBSTRATE_COMMIT=//p' images/substrate-install/Dockerfile | head -1)" ||
   fail "tests/integration/counter/Dockerfile pins another Substrate commit than images/substrate-install/Dockerfile"
 
-grep -q "ateworker-gvisor:${substrate_tag}$" tests/integration/workerpool.yaml || fail "tests/integration/workerpool.yaml names another worker image tag than $substrate_tag"
+grep -q "^  tag: ${substrate_tag}$" charts/substrate-workers/values.yaml || fail "charts/substrate-workers/values.yaml names another worker image tag than $substrate_tag"
 
 # --- Storage -----------------------------------------------------------------
 
@@ -258,8 +258,11 @@ install_chart >"$logs/helm-install.log" 2>&1 || fail "the install did not finish
 kubectl -n ate-system get pods >"$logs/pods-after-install.txt"
 
 step "Start the sample worker pool"
-kubectl apply -f "$here/workerpool.yaml" >/dev/null
+helm upgrade --install substrate-workers charts/substrate-workers -n harness-workers --create-namespace   -f "$here/workers-values.yaml" >"$logs/helm-workers.log" 2>&1 || fail "the substrate-workers chart did not install"
 wait_for 600 "the worker pool is ready" kubectl -n harness-workers wait --for=condition=Ready pod --all --timeout=5s
+# kind does not enforce SELinux. The test verifies that the policy patched the pods, not that it fixes the hostPath.
+test "$(kubectl -n harness-workers get pod -l ate.dev/worker-pool=counter -o json | jq '[.items[] | select(.spec.securityContext.seLinuxOptions.type == "spc_t")] | length')" = 2 ||
+  fail "the SELinux policy did not set spc_t on both worker pods"
 
 # --- Actor -------------------------------------------------------------------
 

@@ -147,8 +147,9 @@ create_actor() {
   create actor "$actor" --template "$template" -a "$atespace"
 }
 
-# Moves an idle actor to the new template. A suspended actor keeps its state with
-# an update. The server refuses the update when the snapshot location or the
+# Moves an idle actor to the new template. A suspended actor keeps its identity and
+# its durable volumes with an update. Its memory and root filesystem restart from the
+# new template (measured on kind: the counters of the demo actor restart at 1). The server refuses the update when the snapshot location or the
 # volumes differ. Then, and for a crashed actor, the script deletes the actor and
 # its state and creates it again.
 swap_template() {
@@ -156,7 +157,7 @@ swap_template() {
   ensure_template "$actor" "$atespace" "$template"
   if [ "$state" = "ACTOR_STATE_SUSPENDED" ]; then
     if out=$(ate update actor "$actor" --template "$template" -a "$atespace" 2>&1); then
-      log "Moved actor $atespace/$actor to $template and kept its state"
+      log "Moved actor $atespace/$actor to $template in place"
       return 0
     fi
     case "$out" in

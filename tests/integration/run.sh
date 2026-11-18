@@ -336,6 +336,14 @@ log "the largest part count is ${max_parts:-0}"
 [ "$largest" -ge 134217728 ] || fail "no snapshot object reached 128 MiB, so the multipart upload path did not run"
 
 step "Check that the actor resumes"
+# Counts the snapshot downloads of 128 MiB or more in the logs of atelet.
+big_downloads() {
+  local pod
+  for pod in $(kubectl -n ate-system get pods -l app=atelet -o name); do
+    kubectl -n ate-system logs "$pod" --all-containers --tail=-1 2>/dev/null
+  done | sed -n 's/.*"Decompressed zstd download".*"logical_bytes":\([0-9]*\).*//p' | awk '$1 >= 134217728' | wc -l
+}
+downloads_before="$(big_downloads)"
 # A revert drops the node-local snapshot, so the next resume must read the snapshot from RustFS.
 # A refused revert fails the test: the resume could then come from the local copy.
 ate revert actor counter -a harness >"$logs/revert1.log" 2>&1 || { cat "$logs/revert1.log"; fail "kubectl ate revert was refused, so the resume would not read RustFS"; }
@@ -344,11 +352,10 @@ ate resume actor counter -a harness >"$logs/resume2.log" 2>&1 || { cat "$logs/re
 wait_for 300 "the actor is RUNNING again" actor_is ACTOR_STATE_RUNNING
 expect_continued "$last_counters"
 last_counters="$(counters)"
-# The plugin of atelet reads the snapshot from the object store on a restore with no local copy.
-for pod in $(kubectl -n ate-system get pods -l app=atelet -o name); do
-  kubectl -n ate-system logs "$pod" --all-containers --tail=-1 >>"$logs/atelet-after-revert.log" 2>&1 || true
-done
-grep -iE "s3|download|fetch|restor|snapshot" "$logs/atelet-after-revert.log" | cut -c1-260 | tail -25 || true
+# The restore must have downloaded the snapshot from the object store.
+downloads_after="$(big_downloads)"
+log "snapshot downloads of 128 MiB or more: $downloads_before before the revert, $downloads_after after the resume"
+[ "$downloads_after" -gt "$downloads_before" ] || fail "atelet did not download the snapshot from RustFS on the resume"
 ate suspend actor counter -a harness --mode=sync >"$logs/suspend2.log" 2>&1 || fail "the second suspend failed"
 wait_for 300 "the actor is SUSPENDED again" actor_is ACTOR_STATE_SUSPENDED
 log "the actor ran, suspended, resumed and suspended again"
@@ -390,14 +397,14 @@ log "actor, egress policy and templates are the same after the second run"
 
 # --- Template swap -----------------------------------------------------------
 
-step "Change the template and verify that a suspended actor keeps its state"
+step "Change the template and verify that a suspended actor moves in place"
 uid_before="$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')"
 template_before="$(ate get actor counter -a harness -o json | jq -r '.actorTemplate.name')"
 actors_args+=(--set "actors[0].env.GREETING=second")
 install_actor
 rerun_registration || { registration_job_log | tail -30; fail "the template swap failed"; }
 registration_job_log >"$logs/registration-swap.log"
-grep -q "kept its state" "$logs/registration-swap.log" || fail "the swap did not keep the state of the actor"
+grep -q "in place" "$logs/registration-swap.log" || fail "the swap did not update the actor in place"
 template_after="$(ate get actor counter -a harness -o json | jq -r '.actorTemplate.name')"
 uid_after="$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')"
 [ "$template_before" != "$template_after" ] || fail "the actor still uses $template_before"
@@ -405,7 +412,10 @@ uid_after="$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')"
 actor_is ACTOR_STATE_SUSPENDED || fail "the actor is not SUSPENDED after the swap"
 ate resume actor counter -a harness >/dev/null
 wait_for 300 "the actor with the new template is RUNNING" actor_is ACTOR_STATE_RUNNING
-expect_continued "$last_counters"
+# A new template is a new process: its counters start again. Only the identity of the actor stays.
+swapped_counters="$(counters)"
+[ "$swapped_counters" = "1 1" ] || fail "the counters after the swap are '$swapped_counters', expected a restart at '1 1'"
+log "after the swap the counters restart: $last_counters -> $swapped_counters"
 last_counters="$(counters)"
 log "the actor moved from $template_before to $template_after, kept its uid and runs"
 
@@ -418,7 +428,7 @@ grep -q "is busy" "$logs/registration-busy.log" || fail "the Job did not report 
 ate suspend actor counter -a harness --mode=sync >/dev/null
 wait_for 300 "the actor is SUSPENDED" actor_is ACTOR_STATE_SUSPENDED
 rerun_registration || { registration_job_log | tail -30; fail "the registration after the suspend failed"; }
-registration_job_log | grep -q "kept its state" || fail "the actor did not move after it suspended"
+registration_job_log | grep -q "in place" || fail "the actor did not move after it suspended"
 
 step "Change the egress rules only and verify that the policy updates in place"
 uid_before="$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')"

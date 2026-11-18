@@ -114,7 +114,7 @@ To register:
 3. It creates the atespace if it is missing.
 4. If the actor does not exist, it creates the template and the actor.
 5. If the actor is `ACTOR_STATE_DELETING`, an earlier delete did not finish. It runs the delete again and creates the actor.
-6. If the actor uses an older template and is `ACTOR_STATE_SUSPENDED`, it moves the actor with `kubectl ate update actor --template`. The actor keeps its state. If the server refuses the update, for example because the snapshot location changed, the Job deletes the actor and creates it again. The state is lost, and the log says so.
+6. If the actor uses an older template and is `ACTOR_STATE_SUSPENDED`, it moves the actor with `kubectl ate update actor --template`. The actor keeps its identity. Its memory and root filesystem restart from the new template, because the new template defines a new process. If the server refuses the update, for example because the snapshot location changed, the Job deletes the actor and creates it again. The state is lost, and the log says so.
 7. If the actor uses an older template and is `ACTOR_STATE_CRASHED`, it deletes the actor and creates it again.
 8. If the actor uses an older template and is in any other state, it is busy. The Job leaves it alone.
 9. It brings the egress policy to the rules in the ConfigMap. It creates, updates in place, or deletes the policy, so an egress change never recreates the actor.
@@ -149,7 +149,7 @@ Port-forward RBAC cannot name a pod, so the Role covers every pod in the namespa
 
 - A sample actor registers: the atespace, the template, the actor and the egress policy exist.
 - A second run changes nothing.
-- A changed template moves a suspended actor in place and keeps its state, and the Job fails on a resumed actor, then moves it after suspend.
+- A changed template moves a suspended actor in place with the same identity, and the Job fails on a resumed actor, then moves it after suspend.
 - An egress-only change updates the live policy in place, and a run after it changes nothing. The real protojson output of `get egress-policy` matches the rules that the chart renders.
 - The Job authenticates with its own token and the RBAC above, with no extra grant.
 
@@ -187,10 +187,10 @@ The test does these steps, in order:
 3. It deploys RustFS and creates the snapshot bucket. RustFS 1.0.x cannot create a bucket itself, so a Job with the pinned AWS CLI image does it. The keys are fixed test values in a Secret that the test creates.
 4. It installs the `substrate-install` chart with the `s3-compatible` storage profile and waits for the install Job to finish.
 5. It starts a worker pool, installs the `substrate-actor` chart and the `substrate-registration` chart for one actor, and checks that the actor registers.
-6. It resumes the actor, suspends it, drops its node-local snapshot with a revert, resumes it again from RustFS, and suspends it. The test fails if the actor is not `ACTOR_STATE_RUNNING` after a resume or not `ACTOR_STATE_SUSPENDED` after a suspend.
+6. It resumes the actor and sends it requests through `kubectl ate proxy`. It suspends the actor, drops its node-local snapshot with a revert and resumes it again. The test verifies that the memory and root filesystem counters continue and that atelet downloaded the snapshot from RustFS. Then it suspends the actor. The test fails if the actor is not `ACTOR_STATE_RUNNING` after a resume or not `ACTOR_STATE_SUSPENDED` after a suspend.
 7. It runs the install Job and the registration Job again, and verifies that nothing changes.
 8. It verifies that the live egress policy equals the rules that the chart renders.
-9. It changes the template and verifies that the suspended actor moves with its state kept and the same identity.
+9. It changes the template and verifies that the suspended actor moves in place with the same identity and that its counters restart from the new template. The chart has no durable volumes, so the test does not verify that a volume survives the move.
 10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
 11. It changes only the egress rules and verifies that the policy updates in place.
 

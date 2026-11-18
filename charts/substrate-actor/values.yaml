@@ -1,0 +1,8 @@
+# One entry in `actors` defines one actor: its template, its egress policy and an
+# optional webhook shim with an ingress. See ci/ for complete examples.
+
+# Where the control plane stores snapshots. The bucket name is a consumer input.
+snapshotStorageLocation: objectstore://substrate-snapshots
+
+
+actors: []

@@ -1,0 +1,132 @@
+suite: substrate-actor
+templates:
+  - templates/actor.yaml
+  - templates/webhook.yaml
+tests:
+  - it: renders nothing without actors
+    set:
+      actors: []
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/actor.yaml
+
+  - it: defines an actor from values only
+    values:
+      - ../ci/onprem-values.yaml
+    template: templates/actor.yaml
+    documentSelector:
+      path: metadata.name
+      value: pr-review-actor
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["template.yaml"]
+          pattern: "image: registry.example.com/agents/pr-review@sha256:"
+      - matchRegex:
+          path: data["egress-policy.yaml"]
+          pattern: "credentialUri: ate-secret://secrets/reviews/git-token"
+
+  - it: renders one config map per actor
+    values:
+      - ../ci/aws-multi-values.yaml
+    template: templates/actor.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: omits the egress policy when an actor has no egress rules
+    values:
+      - ../ci/aws-multi-values.yaml
+    template: templates/actor.yaml
+    documentSelector:
+      path: metadata.name
+      value: docs-writer-actor
+    asserts:
+      - notExists:
+          path: data["egress-policy.yaml"]
+
+
+  - it: renders the webhook ingress with the configured host
+    values:
+      - ../ci/onprem-values.yaml
+    template: templates/webhook.yaml
+    documentSelector:
+      path: kind
+      value: Ingress
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: pr-review.example.com
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+
+  - it: accepts a tag together with a digest
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe:1.2@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/actor.yaml
+
+  - it: accepts a reference with no registry
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: probe@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/actor.yaml
+
+  - it: rejects an image without a digest
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - failedTemplate:
+          errorPattern: "does not match pattern"
+
+  - it: rejects an image with a tag and no digest
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe:1.2
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    asserts:
+      - failedTemplate:
+          errorPattern: "does not match pattern"
+
+  - it: rejects an actor without a memory limit
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {cpuMillicores: 1000}
+    asserts:
+      - failedTemplate:
+          errorPattern: "memoryBytes"
+
+  - it: rejects an actor without a cpu limit
+    set:
+      actors:
+        - name: probe
+          atespace: probes
+          image: registry.example.com/agents/probe@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          resources: {memoryBytes: 1073741824}
+    asserts:
+      - failedTemplate:
+          errorPattern: "cpuMillicores"

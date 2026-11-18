@@ -1,0 +1,19 @@
+{{- range $actor := .Values.actors }}
+{{- $ctx := dict "root" $ "actor" $actor }}
+{{- $template := include "substrate-actor.template" $ctx }}
+{{- $egress := include "substrate-actor.egress" $ctx }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $actor.name }}-actor
+  labels:
+    {{- include "substrate-actor.labels" $ctx | nindent 4 }}
+data:
+  template.yaml: |
+    {{- $template | nindent 4 }}
+  {{- if $actor.egress }}
+  egress-policy.yaml: |
+    {{- $egress | nindent 4 }}
+  {{- end }}
+{{- end }}

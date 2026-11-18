@@ -1,0 +1,126 @@
+{{- range $actor := .Values.actors }}
+{{- with $actor.webhook }}
+{{- $webhook := . }}
+{{- $ctx := dict "root" $ "actor" $actor }}
+{{- $name := printf "%s-webhook" $actor.name }}
+{{- with .secret }}
+{{- $secret := . }}
+{{- with .externalSecret }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $secret.name }}
+  labels:
+    {{- include "substrate-actor.labels" $ctx | nindent 4 }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: {{ .storeName }}
+    kind: {{ .storeKind | default "ClusterSecretStore" }}
+  target:
+    name: {{ $secret.name }}
+  data:
+    {{- range .data }}
+    - secretKey: {{ .secretKey }}
+      remoteRef:
+        key: {{ .remoteKey }}
+    {{- end }}
+{{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "substrate-actor.labels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "substrate-actor.selector" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "substrate-actor.selector" $ctx | nindent 8 }}
+    spec:
+      containers:
+        - name: webhook
+          image: {{ .image }}
+          {{- with .args }}
+          args: {{ toJson . }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .port }}
+          {{- with .env }}
+          env:
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
+          {{- with .secret }}
+          envFrom:
+            - secretRef:
+                name: {{ .name }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "substrate-actor.labels" $ctx | nindent 4 }}
+spec:
+  selector:
+    {{- include "substrate-actor.selector" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .port }}
+      targetPort: http
+{{- with .ingress }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "substrate-actor.labels" $ctx | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ .host }}
+      secretName: {{ .tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ .host }}
+      http:
+        paths:
+          - path: {{ .path | default "/" }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}
+{{- end }}
+{{- end }}

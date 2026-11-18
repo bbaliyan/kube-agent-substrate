@@ -1,0 +1,5 @@
+apiVersion: v2
+name: substrate-actor
+description: Defines Agent Substrate actors from a list in values
+type: application
+version: 0.1.0

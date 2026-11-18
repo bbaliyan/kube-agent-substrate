@@ -7,3 +7,8 @@ kindSha256Arm64: 20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a
 kindNodeImage: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 # renovate: datasource=docker depName=registry
 registryImage: registry:3@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
+# The image Dockerfiles need BuildKit. A host Docker CLI without the buildx plugin gets this one.
+# renovate: datasource=github-releases depName=docker/buildx
+buildxVersion: v0.38.1
+buildxSha256Amd64: e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4
+buildxSha256Arm64: 3b83b3731916ba433feccaaa689fe5bcdc81c641d92c8e6c2ea865dfa141c97a

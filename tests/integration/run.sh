@@ -125,6 +125,22 @@ if [ -z "${KIND:-}" ]; then
   chmod +x "$kind_bin"
 fi
 
+step "Prepare the image builds"
+# The Dockerfiles use $BUILDPLATFORM, which the legacy builder lacks. A Docker CLI that is
+# only the binary (the Dev box mounts just that) has no buildx plugin, so fetch one.
+if ! docker buildx version >/dev/null 2>&1; then
+  case "$(uname -m)" in
+    x86_64) arch=amd64 sum="$(pinned buildxSha256Amd64)" ;;
+    aarch64 | arm64) arch=arm64 sum="$(pinned buildxSha256Arm64)" ;;
+    *) fail "unsupported architecture $(uname -m)" ;;
+  esac
+  export DOCKER_CONFIG="$tmp/docker-config"
+  mkdir -p "$DOCKER_CONFIG/cli-plugins"
+  curl -sSfL -o "$DOCKER_CONFIG/cli-plugins/docker-buildx" "https://github.com/docker/buildx/releases/download/$(pinned buildxVersion)/buildx-$(pinned buildxVersion).linux-$arch"
+  echo "$sum  $DOCKER_CONFIG/cli-plugins/docker-buildx" | sha256sum -c - >/dev/null
+  chmod +x "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+fi
+
 step "Build the images in the background"
 # The three builds share nothing, so they run together. The registry takes the pushes.
 docker rm -f "$registry_name" >/dev/null 2>&1 || true

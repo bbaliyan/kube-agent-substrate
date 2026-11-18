@@ -258,6 +258,16 @@ ate get actor counter -a harness -o json >"$logs/actor-after-register.json"
 ate get egress-policy counter -a harness -o json >"$logs/egress-after-register.json"
 ate get actor-templates -a harness -o json >"$logs/templates-after-register.json"
 
+step "Verify that the live egress policy matches the rules that the chart renders"
+helm template substrate-actor charts/substrate-actor -n "$release_ns" "${actors_args[@]}" |
+  awk '/^  egress-policy.json: \|/{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' >"$tmp/rendered-egress.json"
+[ -s "$tmp/rendered-egress.json" ] || fail "the chart rendered no egress policy"
+live_rules="$(ate get egress-policy counter -a harness -o json | jq -S -c '.rules // []')"
+chart_rules="$(jq -S -c '.rules // []' "$tmp/rendered-egress.json")"
+log "live:  $live_rules"
+log "chart: $chart_rules"
+[ "$live_rules" = "$chart_rules" ] || fail "the live egress rules differ from the rendered rules: the Job would update the policy on every run"
+
 step "Check that the actor starts"
 actor_settled() { case "$(actor_state)" in ACTOR_STATE_SUSPENDED | ACTOR_STATE_RUNNING) return 0 ;; *) return 1 ;; esac; }
 wait_for 300 "the registered actor settles" actor_settled
@@ -272,7 +282,27 @@ step "Check that the actor suspends"
 ate suspend actor counter -a harness --mode=sync >"$logs/suspend1.log" 2>&1 || { cat "$logs/suspend1.log"; fail "kubectl ate suspend failed"; }
 wait_for 300 "the actor is SUSPENDED" actor_is ACTOR_STATE_SUSPENDED
 
+step "List the snapshot objects in RustFS"
+snapshot_objects() {
+  kubectl -n ate-system delete job snapshot-list --ignore-not-found >/dev/null
+  kubectl apply -f "$here/snapshot-list.yaml" >/dev/null
+  kubectl -n ate-system wait --for=condition=complete job/snapshot-list --timeout=120s >/dev/null
+  kubectl -n ate-system logs job/snapshot-list
+}
+snapshot_objects >"$logs/snapshot-objects.txt"
+cat "$logs/snapshot-objects.txt"
+largest="$(awk '{ if ($1 > m) m = $1 } END { print m + 0 }' "$logs/snapshot-objects.txt")"
+parts="$(grep -cE -- '-[0-9]+"?\s' "$logs/snapshot-objects.txt" || true)"
+log "RustFS holds $(wc -l <"$logs/snapshot-objects.txt") snapshot objects. The largest has $largest bytes. Objects with a multipart ETag: $parts"
+[ "$largest" -ge 134217728 ] || fail "no snapshot object reached 128 MiB, so the multipart upload path did not run"
+
 step "Check that the actor resumes"
+# A revert drops the node-local snapshot. The next resume must then read the snapshot back from RustFS.
+if ate revert actor counter -a harness >"$logs/revert1.log" 2>&1; then
+  log "reverted to the external snapshot: the resume reads it from RustFS"
+else
+  log "revert refused (the actor has no node-local snapshot): $(tail -1 "$logs/revert1.log")"
+fi
 ate resume actor counter -a harness >"$logs/resume2.log" 2>&1 || { cat "$logs/resume2.log"; fail "kubectl ate resume failed"; }
 wait_for 300 "the actor is RUNNING again" actor_is ACTOR_STATE_RUNNING
 ate suspend actor counter -a harness --mode=sync >"$logs/suspend2.log" 2>&1 || fail "the second suspend failed"
@@ -313,16 +343,6 @@ ate get actor counter -a harness -o json | jq -S . | diff - "$tmp/actor-before.j
 ate get egress-policy counter -a harness -o json | jq -S . | diff - "$tmp/egress-before.json" >/dev/null || fail "the egress policy changed on the second run"
 ate get actor-templates -a harness -o json | jq -S . | diff - "$tmp/templates-before.json" >/dev/null || fail "the templates changed on the second run"
 log "actor, egress policy and templates are the same after the second run"
-
-step "Verify that the live egress policy matches the rules that the chart renders"
-helm template substrate-actor charts/substrate-actor -n "$release_ns" "${actors_args[@]}" |
-  awk '/^  egress-policy.json: \|/{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' >"$tmp/rendered-egress.json"
-[ -s "$tmp/rendered-egress.json" ] || fail "the chart rendered no egress policy"
-live_rules="$(ate get egress-policy counter -a harness -o json | jq -S -c '.rules // []')"
-chart_rules="$(jq -S -c '.rules // []' "$tmp/rendered-egress.json")"
-log "live:  $live_rules"
-log "chart: $chart_rules"
-[ "$live_rules" = "$chart_rules" ] || fail "the live egress rules differ from the rendered rules: the Job would update the policy on every run"
 
 # --- Template swap -----------------------------------------------------------
 

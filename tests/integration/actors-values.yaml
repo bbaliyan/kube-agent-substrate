@@ -4,7 +4,9 @@ snapshotStorageLocation: s3://snapshots/actors
 actors:
   - name: counter
     atespace: harness
-    command: [/counter]
+    # Fill 256 MiB of the sandbox before the server starts, so the snapshot is large and
+    # holds data that does not compress. Substrate uploads such a snapshot in parallel parts.
+    command: [sh, -c, "head -c 268435456 /dev/urandom > /fill && exec /counter"]
     workerSelector:
       workload: counter
     resources:

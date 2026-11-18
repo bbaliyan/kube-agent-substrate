@@ -178,7 +178,7 @@ The render lint is a quick lint. It runs `helm template` and `kubeconform` for e
 
 ### Integration test
 
-`make test-integration` is the main test of this repo. It needs Docker, `kubectl`, `helm`, `jq` and `curl`. It took 287 seconds on the Dev box with warm image layers. It is not part of `make test-commit`. The kind cluster, the registry and the files of a run are deleted when it ends. Set `KEEP_CLUSTER=1` to keep them.
+`make test-integration` is the main test of this repo. It needs Docker, `kubectl`, `helm`, `jq` and `curl`. It took 287 seconds on a Linux host with 16 cores and warm image layers. It is not part of `make test-commit`. The kind cluster, the registry and the files of a run are deleted when it ends. Set `KEEP_CLUSTER=1` to keep them.
 
 The test does these steps, in order:
 
@@ -194,7 +194,7 @@ The test does these steps, in order:
 10. It changes the template again while the actor runs and verifies that the Job fails. It suspends the actor and verifies that the Job then moves it.
 11. It changes only the egress rules and verifies that the policy updates in place.
 
-The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. The test runs on the Dev box with `scripts/devbox-check <repo> test-integration`. Give the kind node 8 GiB: `DEVBOX_KIND_MEMORY=8g DEVBOX_KIND_CPUS=4 scripts/devbox-check <repo> test-integration`. The node peaked at 7.7 GiB, including page cache, with no OOM kill. The Dev box default of 4 GiB was not tried.
+The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. Give the kind node 8 GiB of memory and 4 CPUs. The node peaked at 7.7 GiB, including page cache, with no OOM kill. A node with 4 GiB was not tried.
 
 The test does not cover:
 

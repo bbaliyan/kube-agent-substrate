@@ -127,7 +127,7 @@ fi
 
 step "Prepare the image builds"
 # The Dockerfiles use $BUILDPLATFORM, which the legacy builder lacks. A Docker CLI that is
-# only the binary (the Dev box mounts just that) has no buildx plugin, so fetch one.
+# only the binary (a CI container that mounts just that) has no buildx plugin, so fetch one.
 if ! docker buildx version >/dev/null 2>&1; then
   case "$(uname -m)" in
     x86_64) arch=amd64 sum="$(pinned buildxSha256Amd64)" ;;
@@ -156,7 +156,6 @@ build_counter=$!
 
 step "Create the kind cluster"
 "$kind_bin" create cluster --name "$cluster" --image "$(pinned kindNodeImage)" --config "$here/kind-config.yaml" --wait 180s >"$logs/kind.log" 2>&1
-# The caps of the Dev box reach the node after it starts. Verify what the node got.
 node="$cluster-control-plane"
 # gVisor needs proxy ARP on the node for pod-to-pod networking on loopback (hack/create-kind-cluster.sh).
 docker exec "$node" sysctl -w net.ipv4.conf.all.proxy_arp=1 >/dev/null

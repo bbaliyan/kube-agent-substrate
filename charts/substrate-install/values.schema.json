@@ -57,7 +57,7 @@
               "additionalProperties": false,
               "required": ["cpu", "memory"],
               "properties": {
-                "cpu": { "type": "string", "pattern": "^([0-9]+|[0-9]+m)$" },
+                "cpu": { "type": "string", "pattern": "^([1-9][0-9]*([.][0-9]+)?|0[.][0-9]*[1-9][0-9]*|[1-9][0-9]*m)$" },
                 "memory": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" }
               }
             },
@@ -66,7 +66,7 @@
               "additionalProperties": false,
               "required": ["cpu", "memory"],
               "properties": {
-                "cpu": { "type": "string", "pattern": "^([0-9]+|[0-9]+m)$" },
+                "cpu": { "type": "string", "pattern": "^([1-9][0-9]*([.][0-9]+)?|0[.][0-9]*[1-9][0-9]*|[1-9][0-9]*m)$" },
                 "memory": { "type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$" }
               }
             }

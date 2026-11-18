@@ -97,14 +97,15 @@ Upstream hardcodes the bundled control plane Postgres: a 2 CPU and 1 GiB request
 | `postgres.resources.limits.memory` | `2Gi` | Memory limit |
 | `postgres.storage` | `500Gi` | Size of the data volume. The size also holds the WAL, so a full `pg_wal` cannot drop every connection |
 
-Write the CPU and memory values as strings. The schema rejects other forms and unknown keys. The chart generates the patch `30-postgres-sizing`. `ate-setup` applies the Postgres manifest on its own, outside the kustomization that the `patch` container edits. The `patch-postgres` container therefore builds the manifest with the patch and writes the result over the manifest in the copy, before the deploy. The patch changes only the `postgres` container of the `postgres` StatefulSet and its `data` volume claim. A `test` operation stops the install if upstream moves either one.
+Write the CPU and memory values as strings. The schema rejects other forms, unknown keys and zero. The chart generates the patch `30-postgres-sizing`. `ate-setup` applies the Postgres manifest on its own, outside the kustomization that the `patch` container edits. The `patch-postgres` container therefore builds that manifest with the patch and writes the result back over the manifest in the copy, before the deploy. The merge patch has no target. If no StatefulSet named `postgres` exists, the build fails and so does the install. The patch changes only the `postgres` container and its `data` volume claim. A `test` operation stops the install if upstream moves either one.
 
-Two limits:
+Three limits:
 
-- The volume claim of a StatefulSet cannot change on a running cluster, so a new `postgres.storage` fails on a cluster that is installed. Set the size before the first install. To resize later, delete the StatefulSet with `--cascade=orphan`, grow the claim by hand if the storage class allows it, and run the install again.
+- The volume claim of a StatefulSet cannot change on a running cluster (see upstream #3691), so a new `postgres.storage` fails on a cluster that is installed. Set the size before the first install. To resize later, delete the StatefulSet with `--cascade=orphan`, grow the claim by hand if the storage class allows it, and run the install again.
 - With `config.clusterSize: size10`, `ate-setup` sets the CPU and memory of the container itself, after this patch. Only `postgres.storage` still applies.
+- The kind install profile of `ate-setup` (`kind: true`) reads `kind/postgres` and not this manifest, and that overlay sets the CPU and the storage again. The patch does not apply there. The chart sets no kind profile, so this matters only if you set it through `env`.
 
-`make test-image` renders the patch with the default values and with changed values, applies it to the real v1.0.0 manifest and verifies the requests, the limits and the claim. It also verifies that the control plane base builds with every patch.
+`make test-image` runs the command that the chart gives the Job on the real v1.0.0 manifest, with the default values and with changed values, and verifies the requests, the limits and the claim. It also verifies that the command fails when no StatefulSet is named `postgres`.
 
 ### Publish the image
 
@@ -404,7 +405,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
 | Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
 | `--preview` in the registration Job, because the actor chart sets a snapshot location in every template and the server forbids it without the client flag | none known | The flag, once the actor chart leaves the location out |
-| Postgres sizing patch `30-postgres-sizing`: the chart sets the requests, limits and volume size of the bundled Postgres, because upstream hardcodes 2 CPU / 1 GiB requests, 16 CPU / 2 GiB limits and 500 Gi | #3692 (sizing values for the Helm charts) | The generated patch, the `patch-postgres` init container and the `postgres` values, once upstream offers sizing values |
+| Postgres sizing patch `30-postgres-sizing`: the chart sets the requests, limits and volume size of the bundled Postgres, because upstream hardcodes 2 CPU / 1 GiB requests, 16 CPU / 2 GiB limits and 500 Gi | #3167 (`--component`) plus #3168 (sizing contract) | The generated patch, the `patch-postgres` init container and the `postgres` values, once upstream offers both |
 
 ## License
 

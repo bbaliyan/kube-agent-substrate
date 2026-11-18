@@ -24,7 +24,6 @@ tests:
             - component
             - ../patches/10-atelet-no-credential-provider
             - ../patches/20-storage-profile
-            - ../patches/30-postgres-sizing
       - equal:
           path: spec.template.spec.containers[0].name
           value: deploy
@@ -200,7 +199,7 @@ tests:
           pattern: "^RELEASE-NAME-substrate-install-[a-f0-9]{10}$"
       - notEqual:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-243121b5c7
+          value: RELEASE-NAME-substrate-install-a4c42b8c48
 
   - it: gives the Job a new name when the tolerations change
     template: templates/job.yaml
@@ -212,7 +211,7 @@ tests:
     asserts:
       - notEqual:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-243121b5c7
+          value: RELEASE-NAME-substrate-install-a4c42b8c48
 
   - it: keeps the name when the inputs do not change
     template: templates/job.yaml
@@ -221,4 +220,4 @@ tests:
     asserts:
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-243121b5c7
+          value: RELEASE-NAME-substrate-install-a4c42b8c48

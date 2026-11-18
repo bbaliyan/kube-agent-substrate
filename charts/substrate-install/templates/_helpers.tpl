@@ -120,7 +120,7 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" $patches) }}
 {{- end -}}
 
-{{- /* The Postgres sizing patch: a Component for the StatefulSet of the bundled Postgres. It is not part of the base kustomization: ate-setup applies postgres/postgres.yaml on its own, so the Job renders this Component over that file (see the job). The test operations stop the install if upstream moves the container or the volume claim. */ -}}
+{{- /* The Postgres sizing patch: a Component for the StatefulSet of the bundled Postgres. It is not part of the base kustomization: ate-setup applies postgres/postgres.yaml on its own, so the Job renders this Component over that file (see the job). The merge patch has no target, so kustomize fails the build if no StatefulSet named postgres exists. The test operations stop the install if upstream moves the container or the volume claim. */ -}}
 {{- define "substrate-install.postgresPatch" -}}
 {{- $pg := .Values.postgres -}}
 {{- $target := dict "kind" "StatefulSet" "name" "postgres" -}}
@@ -128,11 +128,11 @@ current-context: {{ include "substrate-install.contextName" . }}
     (dict "op" "test" "path" "/spec/template/spec/containers/0/name" "value" "postgres")
     (dict "op" "test" "path" "/spec/volumeClaimTemplates/0/metadata/name" "value" "data")
     (dict "op" "replace" "path" "/spec/volumeClaimTemplates/0/spec/resources/requests/storage" "value" $pg.storage) -}}
-{{- $merge := dict "apiVersion" "apps/v1" "kind" "StatefulSet" "metadata" (dict "name" "postgres") "spec" (dict "template" (dict "spec" (dict "containers" (list (dict "name" "postgres" "resources" (deepCopy $pg.resources)))))) -}}
+{{- $merge := dict "apiVersion" "apps/v1" "kind" "StatefulSet" "metadata" (dict "name" "postgres" "namespace" "ate-system") "spec" (dict "template" (dict "spec" (dict "containers" (list (dict "name" "postgres" "resources" (deepCopy $pg.resources)))))) -}}
 # Generated from the postgres values. Do not edit.
 # Workaround: upstream hardcodes the sizing of the bundled Postgres.
-# Upstream issue: agent-substrate/substrate#3692.
-{{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "target" $target "patch" (toYaml $guard)) (dict "target" $target "patch" (toYaml $merge)))) }}
+# Upstream issues: agent-substrate/substrate#3167 and #3168.
+{{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "patch" (toYaml $merge)) (dict "target" $target "patch" (toYaml $guard)))) }}
 {{- end -}}
 
 {{- /* Every patch Component by directory name: the files in patches/ and the generated ones. */ -}}
@@ -151,9 +151,24 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{- toJson (keys (include "substrate-install.patchFiles" . | fromJson) | sortAlpha) -}}
 {{- end -}}
 
+{{- /* The kustomization that applies the Postgres patch to the Postgres manifest. The Job builds it over that manifest. */ -}}
+{{- define "substrate-install.postgresBuild" -}}
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../postgres/postgres.yaml
+components:
+  - ../patches/30-postgres-sizing
+{{- end -}}
+
+{{- /* The patches for the base kustomization. The Postgres patch is not one of them: base holds no Postgres. */ -}}
+{{- define "substrate-install.basePatchNames" -}}
+{{- toJson (without (include "substrate-install.patchNames" . | fromJsonArray) "30-postgres-sizing") -}}
+{{- end -}}
+
 {{- /* Everything the Job reads from the config map, as JSON. */ -}}
 {{- define "substrate-install.configData" -}}
-{{- $data := dict "substrate-install.yaml" (include "substrate-install.document" .) "kubeconfig" (include "substrate-install.kubeconfig" .) -}}
+{{- $data := dict "substrate-install.yaml" (include "substrate-install.document" .) "kubeconfig" (include "substrate-install.kubeconfig" .) "pg-build" (include "substrate-install.postgresBuild" .) -}}
 {{- range $name, $content := include "substrate-install.patchFiles" . | fromJson -}}
 {{- $_ := set $data (printf "patch-%s" $name) $content -}}
 {{- end -}}

@@ -206,7 +206,7 @@ digest_of() {
   for try in 1 2 3; do
     if docker push "$push_base/$1:$substrate_tag" >"$logs/push-$1.log" 2>&1; then
       cat "$logs/push-$1.log" >>"$logs/push.log"
-      sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*//p' "$logs/push-$1.log" | tail -1
+      sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*/\1/p' "$logs/push-$1.log" | tail -1
       return 0
     fi
     sleep 5

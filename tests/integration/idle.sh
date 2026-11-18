@@ -37,7 +37,7 @@ idle_install() {
 # Prints the series that the default queries read, so a drift of a metric name shows in the log.
 idle_series() {
   local q
-  for q in 'count(envoy_server_live == 1)'     'sum(atenet_router_route_duration_seconds_count)'     'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})'     'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})'     'ate_actor_stats_cpu_time_seconds_total'; do
+  for q in 'count(envoy_server_live == 1)'     'sum(atenet_router_route_duration_seconds_count)'     'sum(ate_actor_lifecycle_operation_duration_seconds_count{ate_actor_operation_name="resume"})'     'sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"})'     'envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}'     'max_over_time(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}[1m])'     'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[1m:15s])'     'ate_actor_stats_cpu_time_seconds_total'; do
     printf 'series %s
 ' "$q"
     idle_prom "$q" | head -5 || true

@@ -102,7 +102,7 @@ To register:
 
 1. Install the `substrate-actor` chart. It renders one ConfigMap for each actor.
 2. Add the service account of the Job to the bootstrap owners of the control plane. The Job creates atespaces, and only a global owner can. Append `system:serviceaccount:<namespace>:<release>-substrate-registration` to `config.ateapi.authz.bootstrapOwners` in the `substrate-install` values. The value is one comma-separated string. Do not replace the list. A set list drops the default `ate-client` principal, which the upstream demos and `ate-setup` use. Add `system:serviceaccount:ate-system:ate-client` to the list if you still need it.
-3. Enable the preview gate `PerTemplateSnapshotLocation` on the control plane. The template of each actor names its snapshot location, and the server accepts that only with the gate. The `substrate-install` chart has no setting for it. Add the variable `ATE_PREVIEW` with the value `PerTemplateSnapshotLocation` to `env`. The Job passes `--preview` to `kubectl ate` for the same reason.
+3. Enable the preview gate `PerTemplateSnapshotLocation` on the control plane. The template of each actor names its snapshot location, and the server accepts that only with the gate. Set `config.preview` to `PerTemplateSnapshotLocation` in the `substrate-install` values. The Job passes `--preview` to `kubectl ate` for the same reason.
 4. Copy `charts/substrate-registration/ci/aws-values.yaml` or `onprem-values.yaml`. Use the same `snapshotStorageLocation` and `actors` as the actor release. One values file can serve both releases.
 5. Set `image.digest` to the digest of the published registration image.
 6. Install the chart with your values file, or sync it with Argo CD.
@@ -235,7 +235,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
 | RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
 | Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
-| Preview gate `PerTemplateSnapshotLocation` through `env`, and `--preview` in the registration Job, because the actor chart sets a snapshot location in every template | none known | The gate, once the install chart has a setting for it or the actor chart leaves the location out |
+| `--preview` in the registration Job, because the actor chart sets a snapshot location in every template and the server forbids it without the client flag | none known | The flag, once the actor chart leaves the location out |
 
 ## License
 

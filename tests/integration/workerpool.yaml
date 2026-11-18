@@ -14,6 +14,7 @@ metadata:
     workload: counter
 spec:
   replicas: 2
+  # The tag is the Substrate release. Change it with SUBSTRATE_TAG; the test fails if it differs.
   workerImage: ghcr.io/agent-substrate/substrate/ateworker-gvisor:v1.0.0
   sandboxClasses:
     - name: gvisor

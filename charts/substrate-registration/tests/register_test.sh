@@ -14,9 +14,10 @@ cat >"$work/bin/kubectl-ate" <<'STUB'
 set -eu
 s="$STATE"
 args=()
+preview=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --preview) shift ;;
+    --preview) preview=1; shift ;;
     --token-file | -o | -a) shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
@@ -31,6 +32,8 @@ case "$verb $kind" in
   "get actor-template") [ -e "$s/templates/$name" ] || missing; echo '{}' ;;
   "get actor-templates") { ls "$s/templates" || true; } | jq -R '{metadata:{name:.}}' | jq -s '{actorTemplates:.}' ;;
   "create actor-template")
+    # The server forbids a snapshot location unless the client sends the preview flag.
+    [ "$preview" = 1 ] || { echo "rpc error: code = InvalidArgument desc = actor_template.snapshot_config.storage_location: Forbidden" >&2; exit 1; }
     n="$(sed -n 's/^  name: //p' "$4")"
     echo "create actor-template $n" >>"$s/calls"; touch "$s/templates/$n" ;;
   "delete actor-template") echo "delete actor-template $name" >>"$s/calls"; rm -f "$s/templates/$name" ;;

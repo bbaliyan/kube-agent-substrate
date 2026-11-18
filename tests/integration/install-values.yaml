@@ -8,12 +8,11 @@ storage:
     pathStyle: true
     credentials:
       secretName: snapshot-store-keys
-# The actor template names its own snapshot location, which needs this preview gate.
-# The chart has no setting for it, so the environment of ate-setup carries it.
-env:
-  - name: ATE_PREVIEW
-    value: PerTemplateSnapshotLocation
 config:
+  # The proxy of kubectl ate presents this identity to the router.
+  ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/ate-system/sa/atenet-client
+  # The actor template names its own snapshot location, which needs this preview gate.
+  preview: PerTemplateSnapshotLocation
   atenet:
     egress:
       # ate-setup needs a credential provider setting. The sample actor injects no credentials.

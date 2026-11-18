@@ -46,6 +46,7 @@ fail() {
 
 cleanup() {
   local code=$?
+  [ -z "$proxy_pid" ] || kill "$proxy_pid" 2>/dev/null || true
   if [ "$code" -ne 0 ]; then
     diagnose || true
   fi
@@ -57,6 +58,7 @@ cleanup() {
     log "Kept the cluster $cluster, the registry $registry_name and $tmp (kubeconfig, logs)."
   fi
 }
+proxy_pid=
 trap cleanup EXIT
 
 # Writes the state of the cluster to the log directory and prints the end of the
@@ -103,6 +105,27 @@ ate() {
 }
 refresh_token() {
   kubectl -n "$release_ns" create token substrate-registration --audience "api.ate-system.svc" --duration 2h >"$tmp/token"
+}
+# The demo counter answers each request with three counters: memory, file and root filesystem.
+# They continue across a suspend and a resume only if the snapshot kept the state.
+# The proxy uses the ate-client identity that kubectl ate creates from the kubeconfig.
+proxy_port=$((20000 + RANDOM % 20000))
+start_proxy() {
+  kubectl-ate --preview proxy actor counter "$proxy_port:80" -a harness >"$logs/proxy.log" 2>&1 &
+  proxy_pid=$!
+  wait_for 60 "the proxy answers" curl -sf -m 20 "http://127.0.0.1:$proxy_port/readyz"
+}
+counters() {
+  curl -sf -m 60 "http://127.0.0.1:$proxy_port/" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: \([0-9]*\) | preserved rootfs counter: \([0-9]*\).*/\1 \2 \3/p\'
+}
+# Verifies that the next request continues every counter from the values in $1.
+expect_continued() {
+  local before="$1" after
+  after="$(counters)"
+  set -- $before
+  local want="$(($1 + 1)) $(($2 + 1)) $(($3 + 1))"
+  [ "$after" = "$want" ] || fail "the actor lost state: counters were '$before', expected '$want' after the resume, got '$after'"
+  log "counters continued: $before -> $after"
 }
 actor_state() { ate get actor counter -a harness -o json | jq -r '.status.state // ""'; }
 actor_is() { [ "$(actor_state)" = "$1" ]; }
@@ -187,6 +210,8 @@ counter_image="$cluster_base/counter@$counter_digest"
 # The tag of the counter build must be the release that the install image holds.
 test "$(sed -n 's/^ARG SUBSTRATE_COMMIT=//p' tests/integration/counter/Dockerfile)" = "$(sed -n 's/^ARG SUBSTRATE_COMMIT=//p' images/substrate-install/Dockerfile | head -1)" ||
   fail "tests/integration/counter/Dockerfile pins another Substrate commit than images/substrate-install/Dockerfile"
+
+grep -q "ateworker-gvisor:${substrate_tag}$" tests/integration/workerpool.yaml || fail "tests/integration/workerpool.yaml names another worker image tag than $substrate_tag"
 
 # --- Storage -----------------------------------------------------------------
 
@@ -276,6 +301,12 @@ if actor_is ACTOR_STATE_SUSPENDED; then
 fi
 wait_for 300 "the actor is RUNNING" actor_is ACTOR_STATE_RUNNING
 log "worker of the actor: $(ate get actor counter -a harness -o json | jq -c '.status')"
+start_proxy
+counters >/dev/null
+counters >/dev/null
+last_counters="$(counters)"
+[ -n "$last_counters" ] || fail "the counter gave no answer"
+log "counters before the first suspend: $last_counters"
 
 step "Check that the actor suspends"
 ate suspend actor counter -a harness --mode=sync >"$logs/suspend1.log" 2>&1 || { cat "$logs/suspend1.log"; fail "kubectl ate suspend failed"; }
@@ -293,17 +324,26 @@ cat "$logs/snapshot-objects.txt"
 largest="$(awk '{ if ($1 > m) m = $1 } END { print m + 0 }' "$logs/snapshot-objects.txt")"
 parts="$(grep -cE -- '-[0-9]+"?\s' "$logs/snapshot-objects.txt" || true)"
 log "RustFS holds $(wc -l <"$logs/snapshot-objects.txt") snapshot objects. The largest has $largest bytes. Objects with a multipart ETag: $parts"
+[ "$parts" -ge 1 ] || fail "no snapshot object has a multipart ETag"
+# The ETag of a multipart object ends in -<number of parts>.
+max_parts="$(sed -n 's/.*-\([0-9]\+\)"[[:space:]].*/\1/p' "$logs/snapshot-objects.txt" | sort -n | tail -1)"
+log "the largest part count is ${max_parts:-0}"
+[ "${max_parts:-0}" -gt 1 ] || fail "the multipart upload had only one part"
 [ "$largest" -ge 134217728 ] || fail "no snapshot object reached 128 MiB, so the multipart upload path did not run"
 
 step "Check that the actor resumes"
-# A revert drops the node-local snapshot. The next resume must then read the snapshot back from RustFS.
-if ate revert actor counter -a harness >"$logs/revert1.log" 2>&1; then
-  log "reverted to the external snapshot: the resume reads it from RustFS"
-else
-  log "revert refused (the actor has no node-local snapshot): $(tail -1 "$logs/revert1.log")"
-fi
+# A revert drops the node-local snapshot, so the next resume must read the snapshot from RustFS.
+# A refused revert fails the test: the resume could then come from the local copy.
+ate revert actor counter -a harness >"$logs/revert1.log" 2>&1 || { cat "$logs/revert1.log"; fail "kubectl ate revert was refused, so the resume would not read RustFS"; }
+actor_is ACTOR_STATE_SUSPENDED || fail "the actor is not SUSPENDED after the revert"
 ate resume actor counter -a harness >"$logs/resume2.log" 2>&1 || { cat "$logs/resume2.log"; fail "kubectl ate resume failed"; }
 wait_for 300 "the actor is RUNNING again" actor_is ACTOR_STATE_RUNNING
+expect_continued "$last_counters"
+last_counters="$(counters)"
+# The plugin of atelet reads the snapshot from the object store on a restore with no local copy.
+for pod in $(kubectl -n ate-system get pods -l app=atelet -o name); do
+  kubectl -n ate-system logs "$pod" --all-containers --tail=-1 >>"$logs/atelet-after-revert.log" 2>&1 || true
+done
 ate suspend actor counter -a harness --mode=sync >"$logs/suspend2.log" 2>&1 || fail "the second suspend failed"
 wait_for 300 "the actor is SUSPENDED again" actor_is ACTOR_STATE_SUSPENDED
 log "the actor ran, suspended, resumed and suspended again"
@@ -316,7 +356,7 @@ fingerprint() {
   {
     kubectl -n ate-system get deploy,ds,sts -o json | jq -S '[.items[] | {kind, name: .metadata.name, generation: .metadata.generation}]'
     kubectl -n ate-system get pods -o json | jq -S '[.items[] | {name: .metadata.name, uid: .metadata.uid, restarts: ([.status.containerStatuses[]?.restartCount] | add)}]'
-    kubectl -n ate-system get secrets -o json | jq -S '[.items[] | {name: .metadata.name, uid: .metadata.uid, data: (.data | tojson | length)}]'
+    kubectl -n ate-system get secrets -o json | jq -S '[.items[] | {name: .metadata.name, uid: .metadata.uid, data: (.data | tojson)}]'
     kubectl get crd -o json | jq -S '[.items[] | select(.spec.group | endswith("ate.dev")) | {name: .metadata.name, generation: .metadata.generation}]'
   } | sha256sum | cut -d' ' -f1
 }
@@ -360,6 +400,8 @@ uid_after="$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')"
 actor_is ACTOR_STATE_SUSPENDED || fail "the actor is not SUSPENDED after the swap"
 ate resume actor counter -a harness >/dev/null
 wait_for 300 "the actor with the new template is RUNNING" actor_is ACTOR_STATE_RUNNING
+expect_continued "$last_counters"
+last_counters="$(counters)"
 log "the actor moved from $template_before to $template_after, kept its uid and runs"
 
 step "Verify that a running actor is left alone and the Job fails"

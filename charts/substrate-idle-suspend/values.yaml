@@ -1,4 +1,5 @@
 # The actors to watch. Use the same atespace and name as in the substrate-actor chart.
+# The script fails when the list is empty, so a release without actors does nothing.
 actors: []
 #  - atespace: reviews
 #    name: pr-review
@@ -17,8 +18,8 @@ suspendMode: async
 
 # Prometheus is the source of the idle signals.
 prometheus:
-  # Base URL, for example https://prometheus.example.com. The chart does not render without it.
-  url: ""
+  # Base URL of Prometheus. The default is the service of the Prometheus Operator. Set your own.
+  url: http://prometheus-operated.monitoring.svc:9090
   # A Secret in the release namespace that holds a bearer token. Leave the name empty for no authentication.
   bearerTokenSecret:
     name: ""

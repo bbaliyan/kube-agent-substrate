@@ -27,9 +27,8 @@ app.kubernetes.io/part-of: substrate-idle-suspend
 {{ end -}}
 {{- end -}}
 
-{{- /* The URL is required. A render without it fails, so a missing value never gives a CronJob that cannot work. */ -}}
 {{- define "substrate-idle-suspend.prometheusUrl" -}}
-{{- required "prometheus.url is required" .Values.prometheus.url | trimSuffix "/" -}}
+{{- .Values.prometheus.url | trimSuffix "/" -}}
 {{- end -}}
 
 {{- /* Names the ConfigMap. Anything that the script reads gives a new name, so a run never mixes two versions. */ -}}

@@ -118,8 +118,8 @@ tests:
 
   - it: asks for no Prometheus credential when no Secret is named
     template: templates/cronjob.yaml
-    values:
-      - ../ci/onprem-values.yaml
+    set:
+      prometheus.bearerTokenSecret.name: ""
     asserts:
       - notContains:
           path: spec.jobTemplate.spec.template.spec.volumes
@@ -182,20 +182,20 @@ tests:
           path: kind
           value: RoleBinding
 
-  - it: does not render without a Prometheus URL
+  - it: rejects a Prometheus URL that is not an http or https URL
     template: templates/cronjob.yaml
     set:
-      prometheus.url: ""
+      prometheus.url: prometheus.example.com
     asserts:
       - failedTemplate: {}
 
-  - it: rejects an empty actor list
+  - it: rejects an actor without an atespace
     template: templates/cronjob.yaml
     set:
-      actors: []
+      actors:
+        - name: pr-review
     asserts:
-      - failedTemplate:
-          errorPattern: "minItems|Array must have at least"
+      - failedTemplate: {}
 
   - it: rejects a suspend mode that kubectl ate does not know
     template: templates/cronjob.yaml

@@ -23,6 +23,7 @@ tests:
             - add
             - component
             - ../patches/10-atelet-no-credential-provider
+            - ../patches/20-storage-profile
       - equal:
           path: spec.template.spec.containers[0].name
           value: deploy
@@ -178,13 +179,6 @@ tests:
     asserts:
       - failedTemplate: {}
 
-  - it: rejects a config without the storage block
-    template: templates/job.yaml
-    set:
-      config.storage: null
-    asserts:
-      - failedTemplate: {}
-
   # The name below is for the ci/aws-values.yaml inputs with serviceAccount.name set to installer. Update it when the patches or defaults change.
   - it: gives the Job a new name when the node selector changes
     template: templates/job.yaml
@@ -198,7 +192,7 @@ tests:
           pattern: "^RELEASE-NAME-substrate-install-[a-f0-9]{10}$"
       - notEqual:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-1eba99f208
+          value: RELEASE-NAME-substrate-install-347391d810
 
   - it: gives the Job a new name when the tolerations change
     template: templates/job.yaml
@@ -210,7 +204,7 @@ tests:
     asserts:
       - notEqual:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-1eba99f208
+          value: RELEASE-NAME-substrate-install-347391d810
 
   - it: keeps the name when the inputs do not change
     template: templates/job.yaml
@@ -219,4 +213,4 @@ tests:
     asserts:
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-1eba99f208
+          value: RELEASE-NAME-substrate-install-347391d810

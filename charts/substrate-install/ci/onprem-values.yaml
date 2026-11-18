@@ -1,12 +1,23 @@
 # On-prem profile. Placeholder values: copy the file and set your own.
 # The database is external, so its connection string comes from a Secret.
+# The store keys come from an ExternalSecret.
 image:
   digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+storage:
+  profile: s3-compatible
+  bucket: example-snapshots
+  region: us-east-1
+  s3Compatible:
+    endpoint: http://object-store.example.svc:9000
+    pathStyle: true
+    credentials:
+      externalSecret:
+        enabled: true
+        storeName: example-store
+        accessKeyRemoteKey: example/object-store/access-key-id
+        secretKeyRemoteKey: example/object-store/secret-access-key
 config:
   clusterSize: size0
-  storage:
-    bucketName: example-snapshots
-    snapshotLocation: s3://example-snapshots/
   ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/example/sa/frontend
 env:
   - name: ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING

@@ -19,10 +19,8 @@ config:
   rolloutTimeout: 5m0s
   atenet:
     dataplane: envoy
-  storage:
-    # Optional. The chart derives s3://<storage.bucket>/. A value you set must
-    # start with that prefix, or the render fails.
-    # snapshotLocation: s3://example-snapshots/snapshots/
+  # Optional: set storage.snapshotLocation to s3://<storage.bucket> or a prefix
+  # inside that bucket. The chart derives s3://<storage.bucket>/ by default.
 
 # Where snapshots live. The chart turns this into a patch for the two
 # objectstore-plugin containers that must agree (see the README).

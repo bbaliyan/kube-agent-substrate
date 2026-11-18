@@ -1,0 +1,16 @@
+# On-prem profile. Placeholder values: copy the file and set your own.
+# The database is external, so its connection string comes from a Secret.
+image:
+  digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+config:
+  clusterSize: size0
+  storage:
+    bucketName: example-snapshots
+    snapshotLocation: s3://example-snapshots/
+  ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/example/sa/frontend
+env:
+  - name: ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING
+    valueFrom:
+      secretKeyRef:
+        name: substrate-postgres
+        key: connection-string

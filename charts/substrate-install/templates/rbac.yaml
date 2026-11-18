@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "substrate-install.serviceAccountName" . }}
+  labels:
+    {{- include "substrate-install.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "substrate-install.fullname" . }}-{{ .Release.Namespace }}
+  labels:
+    {{- include "substrate-install.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.rbac.clusterRole }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "substrate-install.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

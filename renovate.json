@@ -4,6 +4,20 @@
     "local>bbaliyan/renovate-config"
   ],
   "enabledManagers": [
-    "github-actions"
+    "github-actions",
+    "dockerfile",
+    "custom.regex"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Pins in ARG lines that follow a renovate comment in the install image Dockerfile",
+      "managerFilePatterns": [
+        "/^images/.+/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\nARG \\w+=(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
+      ]
+    }
   ]
 }

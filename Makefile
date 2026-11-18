@@ -58,6 +58,10 @@ image:
 # Runs the steps of the install Job on the real release checkout in the image:
 # copy it, add the chart patches in order, then render the control plane. The
 # credential provider flags must be present before the patches and gone after.
+# It then does the same for the storage patch that the chart generates for each
+# ci values file. The backend must appear twice (the plugin sidecar of
+# ate-api-server and of atelet), the GCS default must be gone, and the keys must
+# appear only with the s3-compatible profile. Needs helm and awk on the host.
 test-image: image
 	docker run --rm --entrypoint sh -v "$(CURDIR)/charts/substrate-install/patches:/patches:ro" "$(IMAGE)" -euc '\
 	  mkdir /tmp/work && cp -a /opt/substrate/. /tmp/work/ && \
@@ -70,6 +74,26 @@ test-image: image
 	  echo "credential provider lines: before=$$before after=$$after" && \
 	  test "$$before" -gt 0 && test "$$after" -eq 0 && \
 	  ate-setup --help >/dev/null'
+	for profile in aws onprem; do \
+	  dir=build/storage-$$profile; mkdir -p "$$dir/20-storage-profile"; \
+	  cp -r charts/substrate-install/patches/. "$$dir/"; \
+	  helm template r charts/substrate-install -f charts/substrate-install/ci/$$profile-values.yaml -s templates/configmap.yaml \
+	    | awk '/^  patch-20-storage-profile: /{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' > "$$dir/20-storage-profile/kustomization.yaml"; \
+	  docker run --rm --entrypoint sh -e PROFILE=$$profile -v "$(CURDIR)/$$dir:/patches:ro" "$(IMAGE)" -euc '\
+	    mkdir /tmp/work && cp -a /opt/substrate/. /tmp/work/ && \
+	    mkdir /tmp/work/manifests/ate-install/patches && cp -r /patches/. /tmp/work/manifests/ate-install/patches/ && \
+	    cd /tmp/work/manifests/ate-install/base && \
+	    kustomize edit add component $$(printf "../patches/%s " $$(ls ../patches)) && \
+	    kustomize build --load-restrictor LoadRestrictionsNone . > /tmp/out.yaml && \
+	    keys=0 && if [ "$$PROFILE" = onprem ]; then keys=2; fi && \
+	    test "$$(grep -c "name: ATE_STORAGE_BACKEND$$" /tmp/out.yaml)" -eq 2 && \
+	    test "$$(grep -A1 "name: ATE_STORAGE_BACKEND$$" /tmp/out.yaml | grep -c "value: s3$$")" -eq 2 && \
+	    test "$$(grep -c "value: gcs$$" /tmp/out.yaml)" -eq 0 && \
+	    test "$$(grep -c "name: AWS_REGION$$" /tmp/out.yaml)" -eq 2 && \
+	    test "$$(grep -c "name: AWS_ENDPOINT_URL$$" /tmp/out.yaml)" -eq $$keys && \
+	    test "$$(grep -c "name: AWS_ACCESS_KEY_ID$$" /tmp/out.yaml)" -eq $$keys && \
+	    echo "storage profile $$PROFILE: backend set on both plugin sidecars"' || exit 1; \
+	done
 
 # Pushes the multi-arch install image and prints its digest. CI runs it on main only.
 publish:

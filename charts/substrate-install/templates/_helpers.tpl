@@ -20,10 +20,37 @@ app.kubernetes.io/part-of: substrate-install
 {{ .Values.image.repository }}:{{ .Values.substrate.version }}@{{ .Values.image.digest }}
 {{- end -}}
 
+{{- /* The snapshot location. A value in config.storage must stay inside the bucket of the profile. */ -}}
+{{- define "substrate-install.snapshotLocation" -}}
+{{- $prefix := printf "s3://%s/" .Values.storage.bucket -}}
+{{- $set := dig "storage" "snapshotLocation" "" .Values.config -}}
+{{- if and $set (not (hasPrefix $prefix $set)) -}}
+{{- fail (printf "config.storage.snapshotLocation %q is outside the bucket: it must start with %s" $set $prefix) -}}
+{{- end -}}
+{{- default $prefix $set -}}
+{{- end -}}
+
+{{- /* The Secret that holds the S3 keys: the name you set, or the default when an ExternalSecret creates it. */ -}}
+{{- define "substrate-install.s3SecretName" -}}
+{{- $creds := .Values.storage.s3Compatible.credentials -}}
+{{- if $creds.secretName -}}
+{{- $creds.secretName -}}
+{{- else if $creds.externalSecret.enabled -}}
+substrate-s3-credentials
+{{- else -}}
+{{- fail "storage.profile s3-compatible needs credentials.secretName or credentials.externalSecret.enabled" -}}
+{{- end -}}
+{{- end -}}
+
 {{- /* The install document. The chart sets the image source and the sandbox class, so a value cannot change them. */ -}}
 {{- define "substrate-install.document" -}}
 {{- $doc := deepCopy .Values.config -}}
-{{- $_ := set $doc "apiVersion" "install.ate.dev/v1alpha1" -}}
+{{- $_ := set $doc "context" "in-cluster" -}}
+{{- $storage := default (dict) $doc.storage -}}
+{{- $_ = set $storage "snapshotLocation" (include "substrate-install.snapshotLocation" .) -}}
+{{- $_ = set $storage "bucketName" .Values.storage.bucket -}}
+{{- $_ = set $doc "storage" $storage -}}
+{{- $_ = set $doc "apiVersion" "install.ate.dev/v1alpha1" -}}
 {{- $_ = set $doc "kind" "SubstrateInstall" -}}
 {{- $_ = set $doc "images" (dict "repo" .Values.substrate.imageRepository "tag" .Values.substrate.version) -}}
 {{- $_ = set $doc "sandboxClasses" "gvisor" -}}
@@ -51,20 +78,60 @@ contexts:
 current-context: in-cluster
 {{- end -}}
 
+{{- /* The storage patch: a Component that sets the object store backend on the two containers that read it, the plugin sidecar of ate-api-server and the plugin sidecar of atelet. The atelet container is left alone: in v1.0.0 it exits if ATE_STORAGE_BACKEND is set on it. The test operations stop the install if upstream moves the sidecar. */ -}}
+{{- define "substrate-install.storagePatch" -}}
+{{- $s := .Values.storage -}}
+{{- if not (has $s.profile (list "aws" "s3-compatible")) -}}
+{{- fail (printf "storage.profile %q is unknown: use aws or s3-compatible" $s.profile) -}}
+{{- end -}}
+{{- $env := list (dict "name" "ATE_STORAGE_BACKEND" "value" "s3") (dict "name" "AWS_REGION" "value" $s.region) -}}
+{{- if eq $s.profile "s3-compatible" -}}
+{{- $s3 := $s.s3Compatible -}}
+{{- if not $s3.endpoint -}}
+{{- fail "storage.profile s3-compatible needs storage.s3Compatible.endpoint" -}}
+{{- end -}}
+{{- $secret := include "substrate-install.s3SecretName" . -}}
+{{- $env = concat $env (list
+    (dict "name" "AWS_ENDPOINT_URL" "value" $s3.endpoint)
+    (dict "name" "AWS_S3_USE_PATH_STYLE" "value" (toString $s3.pathStyle))
+    (dict "name" "AWS_ACCESS_KEY_ID" "valueFrom" (dict "secretKeyRef" (dict "name" $secret "key" $s3.credentials.accessKeyKey)))
+    (dict "name" "AWS_SECRET_ACCESS_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" $secret "key" $s3.credentials.secretKeyKey)))) -}}
+{{- end -}}
+{{- $patches := list -}}
+{{- range $w := list (dict "kind" "Deployment" "name" "ate-api-server") (dict "kind" "DaemonSet" "name" "atelet") -}}
+{{- $guard := list
+    (dict "op" "test" "path" "/spec/template/spec/initContainers/0/name" "value" "objectstore-plugin")
+    (dict "op" "test" "path" "/spec/template/spec/initContainers/0/env/0/name" "value" "ATE_STORAGE_BACKEND") -}}
+{{- $merge := dict "apiVersion" "apps/v1" "kind" $w.kind "metadata" (dict "name" $w.name) "spec" (dict "template" (dict "spec" (dict "initContainers" (list (dict "name" "objectstore-plugin" "env" $env))))) -}}
+{{- $target := dict "kind" $w.kind "name" $w.name -}}
+{{- $patches = concat $patches (list (dict "target" $target "patch" (toYaml $guard)) (dict "target" $target "patch" (toYaml $merge))) -}}
+{{- end -}}
+# Generated from the storage values. Do not edit.
+# Workaround: the object store backend must be explicit on each container that
+# reads it. Upstream issues: agent-substrate/substrate#3668 and #2378.
+{{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" $patches) }}
+{{- end -}}
+
+{{- /* Every patch Component by directory name: the files in patches/ and the generated ones. */ -}}
+{{- define "substrate-install.patchFiles" -}}
+{{- $files := dict -}}
+{{- range $path, $_ := .Files.Glob "patches/*/kustomization.yaml" -}}
+{{- $_ := set $files (base (dir $path)) ($.Files.Get $path) -}}
+{{- end -}}
+{{- $_ := set $files "20-storage-profile" (include "substrate-install.storagePatch" .) -}}
+{{- toJson $files -}}
+{{- end -}}
+
 {{- /* The patch directories in the order of their names. Each holds one kustomize Component. */ -}}
 {{- define "substrate-install.patchNames" -}}
-{{- $names := list -}}
-{{- range $path, $_ := .Files.Glob "patches/*/kustomization.yaml" -}}
-{{- $names = append $names (base (dir $path)) -}}
-{{- end -}}
-{{- toJson (sortAlpha $names) -}}
+{{- toJson (keys (include "substrate-install.patchFiles" . | fromJson) | sortAlpha) -}}
 {{- end -}}
 
 {{- /* Everything the Job reads from the config map, as JSON. */ -}}
 {{- define "substrate-install.configData" -}}
 {{- $data := dict "substrate-install.yaml" (include "substrate-install.document" .) "kubeconfig" (include "substrate-install.kubeconfig" .) -}}
-{{- range $name := include "substrate-install.patchNames" . | fromJsonArray -}}
-{{- $_ := set $data (printf "patch-%s" $name) ($.Files.Get (printf "patches/%s/kustomization.yaml" $name)) -}}
+{{- range $name, $content := include "substrate-install.patchFiles" . | fromJson -}}
+{{- $_ := set $data (printf "patch-%s" $name) $content -}}
 {{- end -}}
 {{- toJson $data -}}
 {{- end -}}

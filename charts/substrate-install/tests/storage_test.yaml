@@ -1,0 +1,186 @@
+suite: substrate-install storage profiles
+templates:
+  - templates/configmap.yaml
+  - templates/externalsecret.yaml
+values:
+  - ../ci/aws-values.yaml
+tests:
+  - it: aws sets the same backend on the sidecars of ate-api-server and atelet
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'kind: Deployment\n\s+metadata:\n\s+name: ate-api-server\n[\s\S]*?name: ATE_STORAGE_BACKEND\n\s+value: s3\n\s+- name: AWS_REGION\n\s+value: us-east-1\n\s+name: objectstore-plugin'
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'kind: DaemonSet\n\s+metadata:\n\s+name: atelet\n[\s\S]*?name: ATE_STORAGE_BACKEND\n\s+value: s3\n\s+- name: AWS_REGION\n\s+value: us-east-1\n\s+name: objectstore-plugin'
+
+  - it: aws holds no static keys and no endpoint
+    template: templates/configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|secretKeyRef|AWS_ENDPOINT_URL'
+
+  - it: never sets the backend on the atelet container or the api server container
+    template: templates/configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: '\n\s+containers:'
+
+  - it: guards the patch with test operations on the sidecar position
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'initContainers/0/name\n\s+value: objectstore-plugin'
+
+  - it: derives the snapshot location from the bucket
+    template: templates/configmap.yaml
+    set:
+      storage.bucket: other-bucket
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'snapshotLocation: s3://other-bucket/\n'
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'bucketName: other-bucket\n'
+
+  - it: accepts a snapshot prefix inside the bucket
+    template: templates/configmap.yaml
+    set:
+      config.storage.snapshotLocation: s3://example-snapshots/prefix/
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'snapshotLocation: s3://example-snapshots/prefix/\n'
+
+  - it: rejects a snapshot location outside the bucket
+    template: templates/configmap.yaml
+    set:
+      config.storage.snapshotLocation: s3://another-bucket/
+    asserts:
+      - failedTemplate:
+          errorPattern: "outside the bucket"
+
+  - it: keeps the placeholders that ate-setup needs off kind, and names the context of the kubeconfig
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'projectID: unused-placeholder\n'
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'transferGSAName: unused-placeholder$'
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'context: in-cluster\n'
+
+  - it: rejects an unknown profile
+    template: templates/configmap.yaml
+    set:
+      storage.profile: gcs
+    asserts:
+      - failedTemplate: {}
+
+  - it: s3-compatible sets the same settings on the sidecars of ate-api-server and atelet
+    template: templates/configmap.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'kind: Deployment\n\s+metadata:\n\s+name: ate-api-server\n[\s\S]*?name: ATE_STORAGE_BACKEND\n\s+value: s3\n\s+- name: AWS_REGION\n\s+value: us-east-1\n\s+- name: AWS_ENDPOINT_URL\n\s+value: http://object-store.example.svc:9000\n\s+- name: AWS_S3_USE_PATH_STYLE\n\s+value: "true"\n\s+- name: AWS_ACCESS_KEY_ID\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: access-key-id\n\s+name: substrate-s3-credentials\n\s+- name: AWS_SECRET_ACCESS_KEY\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: secret-access-key\n\s+name: substrate-s3-credentials\n\s+name: objectstore-plugin'
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'kind: DaemonSet\n\s+metadata:\n\s+name: atelet\n[\s\S]*?name: ATE_STORAGE_BACKEND\n\s+value: s3\n\s+- name: AWS_REGION\n\s+value: us-east-1\n\s+- name: AWS_ENDPOINT_URL\n\s+value: http://object-store.example.svc:9000\n\s+- name: AWS_S3_USE_PATH_STYLE\n\s+value: "true"\n\s+- name: AWS_ACCESS_KEY_ID\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: access-key-id\n\s+name: substrate-s3-credentials\n\s+- name: AWS_SECRET_ACCESS_KEY\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: secret-access-key\n\s+name: substrate-s3-credentials\n\s+name: objectstore-plugin'
+      - notMatchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)\n\s+value:'
+
+  - it: s3-compatible reads the keys from an existing Secret by name
+    template: templates/configmap.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    set:
+      storage.s3Compatible.credentials:
+        secretName: my-keys
+        accessKeyKey: id
+        secretKeyKey: secret
+        externalSecret:
+          enabled: false
+    asserts:
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'key: id\n\s+name: my-keys'
+      - matchRegex:
+          path: data["patch-20-storage-profile"]
+          pattern: 'key: secret\n\s+name: my-keys'
+
+  - it: s3-compatible renders no ExternalSecret when the Secret already exists
+    template: templates/externalsecret.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    set:
+      storage.s3Compatible.credentials:
+        secretName: my-keys
+        externalSecret:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: s3-compatible rejects a profile with no credential source
+    template: templates/configmap.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    set:
+      storage.s3Compatible.credentials.externalSecret.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "credentials.secretName"
+
+  - it: s3-compatible rejects a profile with no endpoint
+    template: templates/configmap.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    set:
+      storage.s3Compatible.endpoint: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "endpoint"
+
+  - it: renders the ExternalSecret in the control plane namespace before the install
+    template: templates/externalsecret.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    asserts:
+      - equal:
+          path: kind
+          value: ExternalSecret
+      - equal:
+          path: metadata.namespace
+          value: ate-system
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "-2"
+      - equal:
+          path: spec.target.name
+          value: substrate-s3-credentials
+      - equal:
+          path: spec.data
+          value:
+            - secretKey: access-key-id
+              remoteRef:
+                key: example/object-store/access-key-id
+            - secretKey: secret-access-key
+              remoteRef:
+                key: example/object-store/secret-access-key
+
+  - it: aws renders no ExternalSecret
+    template: templates/externalsecret.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -2,8 +2,47 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["substrate", "image", "config"],
+  "required": ["substrate", "image", "config", "storage"],
   "properties": {
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "bucket", "region"],
+      "properties": {
+        "profile": { "type": "string", "enum": ["aws", "s3-compatible"] },
+        "bucket": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+        "region": { "type": "string", "minLength": 1 },
+        "s3Compatible": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": { "type": "string" },
+            "pathStyle": { "type": "boolean" },
+            "credentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "secretName": { "type": "string" },
+                "accessKeyKey": { "type": "string", "minLength": 1 },
+                "secretKeyKey": { "type": "string", "minLength": 1 },
+                "externalSecret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "storeName": { "type": "string" },
+                    "storeKind": { "type": "string", "enum": ["ClusterSecretStore", "SecretStore"] },
+                    "refreshInterval": { "type": "string" },
+                    "accessKeyRemoteKey": { "type": "string" },
+                    "secretKeyRemoteKey": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "substrate": {
       "type": "object",
       "additionalProperties": false,
@@ -30,21 +69,22 @@
       "type": "object",
       "additionalProperties": false,
       "description": "Body of the SubstrateInstall document. The chart owns images and sandboxClasses.",
-      "required": ["storage"],
       "properties": {
         "namespace": { "type": "string" },
+        "gcp": { "type": "object" },
         "clusterSize": { "type": "string" },
         "rolloutTimeout": { "type": "string" },
         "atenet": { "type": "object" },
         "storage": {
           "type": "object",
-          "required": ["snapshotLocation"],
           "properties": {
             "snapshotLocation": {
               "type": "string",
               "minLength": 1,
-              "description": "Required. ate-setup stops without a snapshot location."
-            }
+              "description": "Optional. The chart derives s3://<storage.bucket>/ and rejects a value outside that bucket."
+            },
+            "transferGSAName": { "type": "string" },
+            "bucketName": { "type": "string" }
           }
         },
         "ingressAllowedSPIFFEIDs": { "type": "string" },

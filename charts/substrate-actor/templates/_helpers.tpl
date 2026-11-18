@@ -11,11 +11,17 @@ substrate.actor: {{ .actor.name }}
 substrate.component: webhook
 {{- end -}}
 
+{{- /* An ActorTemplate is immutable, so its name carries a hash of what it holds: the actor values without the webhook, and the snapshot location. The substrate-registration chart builds the same name from the same values. */ -}}
+{{- define "substrate-actor.templateName" -}}
+{{- $inputs := dict "actor" (omit .actor "webhook") "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
+{{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}
+{{- end -}}
+
 {{- /* The ActorTemplate is a protojson object for kubectl-ate, not a Kubernetes resource. */ -}}
 {{- define "substrate-actor.template" -}}
 metadata:
   atespace: {{ .actor.atespace }}
-  name: {{ .actor.name }}
+  name: {{ include "substrate-actor.templateName" . }}
 {{- with .actor.workerSelector }}
 workerSelector:
   matchLabels: {{ toJson . }}

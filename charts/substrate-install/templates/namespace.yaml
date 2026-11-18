@@ -1,0 +1,15 @@
+{{- if and (eq .Values.storage.profile "s3-compatible") .Values.storage.s3Compatible.credentials.externalSecret.enabled }}
+# The ExternalSecret needs the control plane namespace before ate-setup runs, and
+# only ate-setup creates it. This renders the namespace first. ate-setup applies
+# over it. Keep and Prune=false stop a delete of the release from removing it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.config.namespace }}
+  labels:
+    {{- include "substrate-install.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    helm.sh/resource-policy: keep
+{{- end }}

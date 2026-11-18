@@ -19,13 +19,7 @@ config:
   rolloutTimeout: 5m0s
   atenet:
     dataplane: envoy
-  # ate-setup models a cluster that is not kind as GCS and refuses to deploy
-  # without a transfer service account and a project. S3 uses neither. These
-  # neutral placeholders satisfy the check. Do not set real values here.
-  gcp:
-    projectID: unused-placeholder
   storage:
-    transferGSAName: unused-placeholder
     # Optional. The chart derives s3://<storage.bucket>/. A value you set must
     # start with that prefix, or the render fails.
     # snapshotLocation: s3://example-snapshots/snapshots/

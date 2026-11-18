@@ -60,16 +60,16 @@ Both must agree. If they differ, the API server deletes or copies snapshots in o
 | `aws` | `ATE_STORAGE_BACKEND`, `AWS_REGION`. No static keys: the pods use the IAM role of the node. |
 | `s3-compatible` | The same, plus `AWS_ENDPOINT_URL`, `AWS_S3_USE_PATH_STYLE`, and `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from a `secretKeyRef`. |
 
-Set `storage.bucket` and `storage.region` for both profiles. The chart sets the snapshot location to `s3://<bucket>/`. You can set `config.storage.snapshotLocation` to a prefix inside the bucket. A location in another bucket fails the render.
+Set `storage.bucket` and `storage.region` for both profiles. The chart sets the snapshot location to `s3://<bucket>/`. You can set `config.storage.snapshotLocation` to `s3://<bucket>` or to a prefix inside the bucket. A location in another bucket fails the render.
 
 For `s3-compatible`, also set `storage.s3Compatible.endpoint` and, if the store needs it, `pathStyle`. Give the keys in one of two ways:
 
 1. Set `credentials.secretName` to an existing Secret in the control plane namespace. The Secret holds the keys named by `accessKeyKey` and `secretKeyKey`.
 2. Set `credentials.externalSecret.enabled` to `true`, with `storeName`, `storeKind` and the two remote keys. The chart renders an ExternalSecret that creates the Secret. The default Secret name is `substrate-s3-credentials`.
 
-The chart stores no key. The ExternalSecret lives in `config.namespace`, which `ate-setup` creates. That namespace must exist before the ExternalSecret syncs, and the Secret must exist before the Job runs.
+The chart stores no key. The ExternalSecret lives in `config.namespace`. When you use it, the chart also renders that namespace first, with the annotations `helm.sh/resource-policy: keep` and `Prune=false`, so a delete of the release does not remove it. `ate-setup` applies over the namespace. The ExternalSecret syncs before the Job runs, so the Secret exists when the Job starts.
 
-`ate-setup` treats a cluster that is not kind as GCS and refuses to deploy without `storage.transferGSAName` and `gcp.projectID`. S3 uses neither. The chart keeps the neutral placeholder `unused-placeholder` for both in `values.yaml`. A project value also makes `ate-setup` fetch GKE credentials unless a context is set, so the chart sets `context` to the context of its own kubeconfig. Do not put real values in these keys.
+`ate-setup` treats a cluster that is not kind as GCS and refuses to deploy without `storage.transferGSAName` and `gcp.projectID`. S3 uses neither. The chart sets both to the neutral placeholder `unused-placeholder`, and a value cannot change them. A project value also makes `ate-setup` fetch GKE credentials unless a context is set, so the chart sets `context` to the context of its own kubeconfig.
 
 #### AWS: instance metadata
 
@@ -79,7 +79,7 @@ The pods read the node credentials through the instance metadata service (IMDS).
 
 Add one lifecycle rule to the bucket: abort incomplete multipart uploads after a few days. Do not add a blanket expiry rule for objects. A suspended actor keeps its state in a snapshot object, and that state can rest for months. An expiry rule would delete it.
 
-Snapshot objects that no actor refers to any more are not removed (upstream issue #610). They need a separate cleanup that this repo does not have.
+In v1.0.0 the sidecar of `ate-api-server` deletes snapshots that nothing refers to. Objects that a failed checkpoint upload leaves behind are not removed (upstream issue #610). They need a separate cleanup that this repo does not have.
 
 ### Publish the image
 
@@ -133,7 +133,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | Opt-in SELinux admission policy (planned) | #3597 | The policy |
 | Idle-suspend CronJob (planned) | #424, #483 | The CronJob, and use the upstream policy |
 | One CPU model for each WorkerPool, as a documented rule (planned) | #1657 | The rule |
-| Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Orphaned snapshots need a separate cleanup | #610 | The note, once upstream removes orphaned snapshots |
+| Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |
 | PodMonitors for clusters without the GKE `PodMonitoring` CRD (planned) | #2589 | The PodMonitors |
 | On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
 | RustFS with large sparse multipart uploads (planned, unverified) | #3921 | The note, once a test shows it works |

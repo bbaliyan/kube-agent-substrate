@@ -2,6 +2,7 @@ suite: substrate-install storage profiles
 templates:
   - templates/configmap.yaml
   - templates/externalsecret.yaml
+  - templates/namespace.yaml
 values:
   - ../ci/aws-values.yaml
 tests:
@@ -184,3 +185,52 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: renders the namespace before the ExternalSecret and keeps it on delete
+    template: templates/namespace.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: ate-system
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "-3"
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - matchRegex:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          pattern: "Prune=false"
+
+  - it: renders no namespace when no ExternalSecret is used
+    template: templates/namespace.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a snapshot location without a trailing slash
+    template: templates/configmap.yaml
+    set:
+      config.storage.snapshotLocation: s3://example-snapshots
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'snapshotLocation: s3://example-snapshots\n'
+
+  - it: forces the placeholders and the context against a consumer override
+    template: templates/configmap.yaml
+    set:
+      config.gcp.projectID: real-project
+      config.storage.transferGSAName: real-account
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'projectID: unused-placeholder\n'
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'transferGSAName: unused-placeholder'
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: 'context: in-cluster\n'

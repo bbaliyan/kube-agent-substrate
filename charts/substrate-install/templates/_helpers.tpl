@@ -24,8 +24,8 @@ app.kubernetes.io/part-of: substrate-install
 {{- define "substrate-install.snapshotLocation" -}}
 {{- $prefix := printf "s3://%s/" .Values.storage.bucket -}}
 {{- $set := dig "storage" "snapshotLocation" "" .Values.config -}}
-{{- if and $set (not (hasPrefix $prefix $set)) -}}
-{{- fail (printf "config.storage.snapshotLocation %q is outside the bucket: it must start with %s" $set $prefix) -}}
+{{- if and $set (ne $set (trimSuffix "/" $prefix)) (not (hasPrefix $prefix $set)) -}}
+{{- fail (printf "config.storage.snapshotLocation %q is outside the bucket: it must be s3://%s or start with %s" $set .Values.storage.bucket $prefix) -}}
 {{- end -}}
 {{- default $prefix $set -}}
 {{- end -}}
@@ -45,9 +45,14 @@ substrate-s3-credentials
 {{- /* The install document. The chart sets the image source and the sandbox class, so a value cannot change them. */ -}}
 {{- define "substrate-install.document" -}}
 {{- $doc := deepCopy .Values.config -}}
-{{- $_ := set $doc "context" "in-cluster" -}}
+{{- $_ := set $doc "context" (include "substrate-install.contextName" .) -}}
+{{- /* ate-setup models a cluster that is not kind as GCS and needs these two. S3 uses neither, so a value cannot change them. */ -}}
+{{- $gcp := default (dict) $doc.gcp -}}
+{{- $_ = set $gcp "projectID" "unused-placeholder" -}}
+{{- $_ = set $doc "gcp" $gcp -}}
 {{- $storage := default (dict) $doc.storage -}}
 {{- $_ = set $storage "snapshotLocation" (include "substrate-install.snapshotLocation" .) -}}
+{{- $_ = set $storage "transferGSAName" "unused-placeholder" -}}
 {{- $_ = set $storage "bucketName" .Values.storage.bucket -}}
 {{- $_ = set $doc "storage" $storage -}}
 {{- $_ = set $doc "apiVersion" "install.ate.dev/v1alpha1" -}}
@@ -57,12 +62,15 @@ substrate-s3-credentials
 {{- toYaml $doc -}}
 {{- end -}}
 
+{{- /* The context name that the kubeconfig defines and the install document selects. */ -}}
+{{- define "substrate-install.contextName" -}}in-cluster{{- end -}}
+
 {{- /* ate-setup reads this file through KUBECONFIG. It names the service account of the Job pod. */ -}}
 {{- define "substrate-install.kubeconfig" -}}
 apiVersion: v1
 kind: Config
 clusters:
-  - name: in-cluster
+  - name: {{ include "substrate-install.contextName" . }}
     cluster:
       server: https://kubernetes.default.svc
       certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
@@ -71,11 +79,11 @@ users:
     user:
       tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
 contexts:
-  - name: in-cluster
+  - name: {{ include "substrate-install.contextName" . }}
     context:
-      cluster: in-cluster
+      cluster: {{ include "substrate-install.contextName" . }}
       user: installer
-current-context: in-cluster
+current-context: {{ include "substrate-install.contextName" . }}
 {{- end -}}
 
 {{- /* The storage patch: a Component that sets the object store backend on the two containers that read it, the plugin sidecar of ate-api-server and the plugin sidecar of atelet. The atelet container is left alone: in v1.0.0 it exits if ATE_STORAGE_BACKEND is set on it. The test operations stop the install if upstream moves the sidecar. */ -}}

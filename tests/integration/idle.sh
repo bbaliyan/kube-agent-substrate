@@ -112,6 +112,11 @@ POLICY
 
   step "Wait for the idle time, then verify that a failing signal query suspends nothing"
   # idleMinutes is 1. Wait until every signal has been quiet for one minute and the scrape has seen it.
+  # The proxy of kubectl ate holds a CONNECT tunnel open. Envoy counts it as an active request of the
+  # actor_connect cluster until it closes, and the chart treats an open tunnel as a busy actor. Close it.
+  kill "$proxy_pid" 2>/dev/null || true
+  wait "$proxy_pid" 2>/dev/null || true
+  proxy_pid=
   sleep 80
   idle_series
   # A query that Prometheus refuses: every other signal says idle, so only the fail-safe keeps the actor.
@@ -133,10 +138,16 @@ POLICY
   grep -q "Nothing to do" "$logs/idle-run-$idle_run_n.log" || fail "the run did not report that there is nothing to do"
 
   step "Verify that the next request resumes the actor"
-  expect_continued "$last_counters"
-  last_counters="$(counters)"
+  # The proxy starts with a request to the actor, and the router resumes the actor for it.
+  start_proxy
   actor_is ACTOR_STATE_RUNNING || fail "the actor is not RUNNING after the request"
-  log "the actor resumed on the request and kept its state"
+  local after
+  after="$(counters)"
+  set -- $last_counters
+  set -- "$1" "$2" $after
+  [ "$3" -gt "$1" ] && [ "$4" -gt "$2" ] || fail "the actor lost state: counters were '$last_counters' before the suspend and '$after' after the resume"
+  last_counters="$after"
+  log "the actor resumed on the request and kept its state: $last_counters"
   # Leave the actor as the other steps expect it: suspended.
   helm -n "$release_ns" uninstall substrate-idle-suspend >/dev/null
   ate suspend actor counter -a harness --mode=sync >/dev/null

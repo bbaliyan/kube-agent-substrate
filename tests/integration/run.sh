@@ -107,6 +107,7 @@ refresh_token() {
   kubectl -n "$release_ns" create token substrate-registration --audience "api.ate-system.svc" --duration 2h >"$tmp/token"
 }
 # The demo counter answers each request with three counters: memory, file and root filesystem.
+# The sample actor has no durable volume, so the test reads the memory and the root filesystem counters.
 # They continue across a suspend and a resume only if the snapshot kept the state.
 # The proxy uses the ate-client identity that kubectl ate creates from the kubeconfig.
 proxy_port=$((20000 + RANDOM % 20000))
@@ -119,14 +120,14 @@ counters() {
   local raw
   raw="$(curl -sS -m 60 "http://127.0.0.1:$proxy_port/")" || return 1
   echo "$raw" >>"$logs/counter-raw.txt"
-  echo "$raw" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: \([0-9]*\) | preserved rootfs counter: \([0-9]*\).*/\1 \2 \3/p'
+  echo "$raw" | sed -n 's/^preserved memory count: \([0-9]*\) | preserved file counter: -*[0-9]* | preserved rootfs counter: \([0-9]*\).*/\1 \2/p'
 }
-# Verifies that the next request continues every counter from the values in $1.
+# Verifies that the next request continues the counters from the values in $1.
 expect_continued() {
-  local before="$1" after
+  local before="$1" after want
   after="$(counters)"
   set -- $before
-  local want="$(($1 + 1)) $(($2 + 1)) $(($3 + 1))"
+  want="$(($1 + 1)) $(($2 + 1))"
   [ "$after" = "$want" ] || fail "the actor lost state: counters were '$before', expected '$want' after the resume, got '$after'"
   log "counters continued: $before -> $after"
 }

@@ -67,6 +67,13 @@ idle_inflight_clear() {
   [ "$(idle_value 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[1m:15s])')" = 0 ]
 }
 
+# True when no request was routed to the actor in the last minute. It is the routed query of the chart.
+# The wait for the in-flight signal does not cover it: the tunnel can close before the last request
+# leaves the one minute window.
+idle_routed_clear() {
+  [ "$(idle_value '(sum(atenet_router_route_duration_seconds_count{ate_template_atespace="harness"}) or vector(0)) != bool (sum(atenet_router_route_duration_seconds_count{ate_template_atespace="harness"} offset 1m) or vector(0))')" = 0 ]
+}
+
 idle_run_n=0
 # Starts one run of the CronJob now and waits for it. Prints the log to $logs/idle-run-N.log.
 # Returns 0 when the Job succeeded and 1 when it failed.
@@ -140,6 +147,7 @@ POLICY
   wait "$proxy_pid" 2>/dev/null || true
   proxy_pid=
   wait_for 300 "no request or tunnel was active for one minute" idle_inflight_clear
+  wait_for 120 "no request was routed for one minute" idle_routed_clear
   idle_assert_series
   wait_for 120 "atelet reports the CPU series of the actor" idle_cpu_series
   log "series ok: ate_actor_stats_cpu_time_seconds_total"

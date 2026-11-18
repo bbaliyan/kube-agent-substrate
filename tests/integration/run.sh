@@ -278,20 +278,6 @@ wait_for 600 "the worker pool is ready" kubectl -n harness-workers wait --for=co
 test "$(kubectl -n harness-workers get pod -l ate.dev/worker-pool=counter -o json | jq '[.items[] | select(.spec.securityContext.seLinuxOptions.type == "spc_t")] | length')" = 2 ||
   fail "the worker pods do not carry spc_t"
 
-step "Verify that the requests of the cluster fit the CI runner"
-# A GitHub runner has 4 vCPU. The pods of the whole harness, the control plane, the database and
-# the workers, must request no more than that, or a pod stays Pending. The node of a larger host
-# reports a larger allocatable value, so the check compares with the runner, not with the node.
-runner_cpu_millis="${RUNNER_CPU_MILLIS:-4000}"
-requested="$(kubectl get pods -A -o json | jq '
-  def millis: if . == null then 0 elif endswith("m") then (.[:-1] | tonumber) else (tonumber * 1000) end;
-  [.items[] | select(.status.phase != "Succeeded" and .status.phase != "Failed")
-   | ([.spec.containers[].resources.requests.cpu | millis] | add // 0)] | add')"
-kubectl describe node "$node" | sed -n '/^Allocatable:/,/^System Info:/p;/^Allocated resources:/,/^Events:/p' >"$logs/node-requests.txt"
-log "CPU requested by all pods: ${requested}m of ${runner_cpu_millis}m on a runner (node allocatable: $(kubectl get node "$node" -o jsonpath='{.status.allocatable.cpu}') CPU, $(kubectl get node "$node" -o jsonpath='{.status.allocatable.memory}'))"
-grep -A4 'Resource *Requests' "$logs/node-requests.txt" | sed 's/^/  /'
-[ "$requested" -le "$runner_cpu_millis" ] || fail "the pods request ${requested}m CPU, more than the ${runner_cpu_millis}m of a CI runner"
-
 # --- Actor -------------------------------------------------------------------
 
 step "Extract kubectl-ate from the registration image"
@@ -488,6 +474,22 @@ rerun_registration
 if registration_job_log | grep -E "^(Create|Update|Delete|Move)"; then fail "a rerun after the egress update changed something"; fi
 
 idle_checks
+
+step "Verify that the requests of the cluster fit the CI runner"
+# A GitHub runner has 4 vCPU. All pods of the harness at its fullest, the control plane, the
+# database, the workers, Prometheus and the idle check, must request no more than that, or a
+# pod stays Pending. The node of a larger host reports a larger allocatable value, so the check
+# compares with the runner, not with the node.
+runner_cpu_millis="${RUNNER_CPU_MILLIS:-4000}"
+requested="$(kubectl get pods -A -o json | jq '
+  def millis: if . == null then 0 elif endswith("m") then (.[:-1] | tonumber) else (tonumber * 1000) end;
+  [.items[] | select(.status.phase != "Succeeded" and .status.phase != "Failed")
+   | ([.spec.containers[].resources.requests.cpu | millis] | add // 0)
+     + ([.spec.initContainers[]? | select(.restartPolicy == "Always") | .resources.requests.cpu | millis] | add // 0)] | add')"
+kubectl describe node "$node" | sed -n '/^Allocatable:/,/^System Info:/p;/^Allocated resources:/,/^Events:/p' >"$logs/node-requests.txt"
+log "CPU requested by all pods: ${requested}m of ${runner_cpu_millis}m on a runner (node allocatable: $(kubectl get node "$node" -o jsonpath='{.status.allocatable.cpu}') CPU, $(kubectl get node "$node" -o jsonpath='{.status.allocatable.memory}'))"
+grep -A4 'Resource *Requests' "$logs/node-requests.txt" | sed 's/^/  /'
+[ "$requested" -le "$runner_cpu_millis" ] || fail "the pods request ${requested}m CPU, more than the ${runner_cpu_millis}m of a CI runner"
 
 step "Done"
 log "Passed in $((SECONDS - started)) seconds."

@@ -360,7 +360,7 @@ The test does these steps, in order:
 11. It changes only the egress rules and verifies that the policy updates in place.
 12. It deploys a minimal Prometheus and the `substrate-idle-suspend` chart, and verifies that a busy actor stays, a failing signal query suspends nothing, an idle actor is suspended and the next request resumes it. See "Suspend idle actors".
 
-The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. A kind node with 4 GiB of memory and 2 CPUs is enough: it peaked at 4.2 GiB, including page cache, with no OOM kill.
+The files are in `tests/integration/`: `run.sh` runs the steps, and the manifests and values hold every setting. The pods of the finished test request 3510m CPU and 3650Mi of memory, with the small Postgres numbers of `install-values.yaml`. The test fails if they request more than 4 CPUs, the size of a GitHub runner. It passed on a kind node capped at 4 CPUs and 8 GiB (485 seconds, no OOM kill) and on the runner (508 seconds).
 
 The test does not cover:
 

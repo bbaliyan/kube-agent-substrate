@@ -80,7 +80,10 @@ image:
 # It then does the same for the storage patch that the chart generates for each
 # ci values file. The backend must appear twice (the plugin sidecar of
 # ate-api-server and of atelet), the GCS default must be gone, and the keys must
-# appear only with the s3-compatible profile. Needs helm and awk on the host.
+# appear only with the s3-compatible profile. It last renders the Postgres sizing
+# patch with the default values and with changed values, and applies it to the
+# real postgres manifest, as the install Job does: the requests, the limits and
+# the volume claim must show the numbers. Needs helm and awk on the host.
 test-image: image
 	docker run --rm --entrypoint sh -v "$(CURDIR)/charts/substrate-install/patches:/patches:ro" "$(IMAGE)" -euc '\
 	  mkdir /tmp/work && cp -a /opt/substrate/. /tmp/work/ && \
@@ -112,6 +115,30 @@ test-image: image
 	    test "$$(grep -c "name: AWS_ENDPOINT_URL$$" /tmp/out.yaml)" -eq $$keys && \
 	    test "$$(grep -c "name: AWS_ACCESS_KEY_ID$$" /tmp/out.yaml)" -eq $$keys && \
 	    echo "storage profile $$PROFILE: backend set on both plugin sidecars"' || exit 1; \
+	done
+	for case in default changed; do \
+	  case $$case in \
+	    default) sets=""; req='cpu: "2" memory: 1Gi'; lim='cpu: "16" memory: 2Gi'; storage=500Gi;; \
+	    changed) sets="--set postgres.resources.requests.cpu=500m --set postgres.resources.requests.memory=512Mi --set-string postgres.resources.limits.cpu=4 --set postgres.resources.limits.memory=3Gi --set postgres.storage=5Gi"; req='cpu: 500m memory: 512Mi'; lim='cpu: "4" memory: 3Gi'; storage=5Gi;; \
+	  esac; \
+	  dir=build/postgres-$$case; mkdir -p "$$dir/30-postgres-sizing"; \
+	  cp -r charts/substrate-install/patches/. "$$dir/"; \
+	  helm template r charts/substrate-install -f charts/substrate-install/ci/aws-values.yaml $$sets -s templates/configmap.yaml \
+	    | awk '/^  patch-30-postgres-sizing: /{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' > "$$dir/30-postgres-sizing/kustomization.yaml"; \
+	  docker run --rm --entrypoint sh -e REQ="$$req" -e LIM="$$lim" -e STORAGE="$$storage" -v "$(CURDIR)/$$dir:/patches:ro" "$(IMAGE)" -euc '\
+	    mkdir /tmp/work && cp -a /opt/substrate/. /tmp/work/ && \
+	    mkdir /tmp/work/manifests/ate-install/patches && cp -r /patches/. /tmp/work/manifests/ate-install/patches/ && \
+	    cd /tmp/work/manifests/ate-install/base && \
+	    kustomize edit add component $$(printf "../patches/%s " $$(ls ../patches)) && \
+	    kustomize build --load-restrictor LoadRestrictionsNone . > /tmp/base.yaml && \
+	    cd ../postgres && \
+	    kustomize create --resources postgres.yaml && \
+	    kustomize edit add component ../patches/30-postgres-sizing && \
+	    kustomize build --load-restrictor LoadRestrictionsNone . > /tmp/work/postgres.sized.yaml && \
+	    flat=$$(tr -s " \n" " " < /tmp/work/postgres.sized.yaml) && \
+	    case "$$flat" in *"requests: $$REQ limits: $$LIM"*|*"limits: $$LIM requests: $$REQ"*) ;; *) echo "postgres sizing $$REQ / $$LIM not found"; exit 1;; esac && \
+	    case "$$flat" in *"storage: $$STORAGE "*) ;; *) echo "storage $$STORAGE not found"; exit 1;; esac && \
+	    echo "postgres sizing $$REQ / $$LIM, storage $$STORAGE: applied to the postgres manifest, and the control plane base still builds with every patch"' || exit 1; \
 	done
 
 # Pushes the multi-arch install image and prints its digest. CI runs it on main only.

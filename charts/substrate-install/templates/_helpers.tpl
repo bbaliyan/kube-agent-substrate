@@ -120,6 +120,21 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" $patches) }}
 {{- end -}}
 
+{{- /* The Postgres sizing patch: a Component for the StatefulSet of the bundled Postgres. It is not part of the base kustomization: ate-setup applies postgres/postgres.yaml on its own, so the Job renders this Component over that file (see the job). The test operations stop the install if upstream moves the container or the volume claim. */ -}}
+{{- define "substrate-install.postgresPatch" -}}
+{{- $pg := .Values.postgres -}}
+{{- $target := dict "kind" "StatefulSet" "name" "postgres" -}}
+{{- $guard := list
+    (dict "op" "test" "path" "/spec/template/spec/containers/0/name" "value" "postgres")
+    (dict "op" "test" "path" "/spec/volumeClaimTemplates/0/metadata/name" "value" "data")
+    (dict "op" "replace" "path" "/spec/volumeClaimTemplates/0/spec/resources/requests/storage" "value" $pg.storage) -}}
+{{- $merge := dict "apiVersion" "apps/v1" "kind" "StatefulSet" "metadata" (dict "name" "postgres") "spec" (dict "template" (dict "spec" (dict "containers" (list (dict "name" "postgres" "resources" (deepCopy $pg.resources)))))) -}}
+# Generated from the postgres values. Do not edit.
+# Workaround: upstream hardcodes the sizing of the bundled Postgres.
+# Upstream issue: agent-substrate/substrate#3692.
+{{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "target" $target "patch" (toYaml $guard)) (dict "target" $target "patch" (toYaml $merge)))) }}
+{{- end -}}
+
 {{- /* Every patch Component by directory name: the files in patches/ and the generated ones. */ -}}
 {{- define "substrate-install.patchFiles" -}}
 {{- $files := dict -}}
@@ -127,6 +142,7 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{- $_ := set $files (base (dir $path)) ($.Files.Get $path) -}}
 {{- end -}}
 {{- $_ := set $files "20-storage-profile" (include "substrate-install.storagePatch" .) -}}
+{{- $_ = set $files "30-postgres-sizing" (include "substrate-install.postgresPatch" .) -}}
 {{- toJson $files -}}
 {{- end -}}
 

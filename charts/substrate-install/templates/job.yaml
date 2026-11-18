@@ -59,6 +59,27 @@ spec:
           volumeMounts:
             - {name: work, mountPath: /work}
             - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
+        # Step 3: size the bundled Postgres. ate-setup applies postgres/postgres.yaml
+        # on its own, outside the base kustomization, so the component cannot reach it
+        # through step 2. A script is needed because kustomize cannot write a build
+        # back over its own input: build to a new file, then replace the manifest.
+        - name: patch-postgres
+          image: {{ $image }}
+          workingDir: /work/manifests/ate-install/postgres
+          command:
+            - sh
+            - -euc
+            - |
+              kustomize create --resources postgres.yaml
+              kustomize edit add component ../patches/30-postgres-sizing
+              kustomize build --load-restrictor LoadRestrictionsNone . >/work/postgres.sized.yaml
+              rm kustomization.yaml
+              cp /work/postgres.sized.yaml postgres.yaml
+          securityContext:
+            {{- include "substrate-install.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
       containers:
         - name: deploy
           image: {{ $image }}

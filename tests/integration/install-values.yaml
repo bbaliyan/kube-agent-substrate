@@ -22,3 +22,15 @@ config:
       # The registration Job creates atespaces, so its account must be a bootstrap owner.
       # The list keeps the default ate-client principal.
       bootstrapOwners: system:serviceaccount:ate-system:ate-client,system:serviceaccount:substrate-system:substrate-registration
+# The bundled Postgres of the test cluster, as small as upstream's kind overlay
+# (250m CPU request, 1Gi volume). The runner has 4 vCPU: with the upstream numbers
+# (2 CPU request) the control plane, the database and two 1-CPU workers do not fit.
+postgres:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  storage: 1Gi

@@ -1,0 +1,84 @@
+{{- $name := printf "%s-%s" (include "substrate-registration.fullname" .) (include "substrate-registration.hash" .) -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "substrate-registration.labels" . | nindent 4 }}
+  {{- with .Values.job.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "substrate-registration.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "substrate-registration.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: register
+          image: {{ include "substrate-registration.image" . }}
+          command: [bash, /scripts/register.sh]
+          env:
+            - {name: SUBSTRATE_NAMESPACE, value: {{ .Values.substrate.namespace | quote }}}
+            - {name: WAIT_SECONDS, value: {{ .Values.waitSeconds | quote }}}
+            - {name: TOKEN_FILE, value: /var/run/ate/token}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "substrate-registration.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: actors, mountPath: /actors, readOnly: true}
+            - {name: ate-api, mountPath: /var/run/ate, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ $name }}
+            defaultMode: 0555
+        - name: tmp
+          emptyDir: {}
+        # The token authenticates the Job to ate-api-server. Its audience is the name of the API Service.
+        - name: ate-api
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: api.{{ .Values.substrate.namespace }}.svc
+                  expirationSeconds: 3600
+                  path: token
+        # One directory for each actor, filled from the ConfigMap of the substrate-actor chart.
+        # The ConfigMap is optional so the Job starts before it exists, and the script waits for it.
+        - name: actors
+          projected:
+            sources:
+              {{- range $actor := .Values.actors }}
+              - configMap:
+                  name: {{ $actor.name }}-actor
+                  optional: true
+                  items:
+                    - {key: template-name, path: {{ $actor.name }}/template-name}
+                    - {key: template.yaml, path: {{ $actor.name }}/template.yaml}
+                    - {key: egress-policy.yaml, path: {{ $actor.name }}/egress-policy.yaml}
+              {{- end }}

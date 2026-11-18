@@ -1,0 +1,6 @@
+apiVersion: v2
+name: substrate-registration
+description: Registers the actors of the substrate-actor chart in a running Agent Substrate control plane
+type: application
+version: 0.1.0
+appVersion: v1.0.0

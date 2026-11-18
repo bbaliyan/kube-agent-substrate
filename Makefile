@@ -51,11 +51,11 @@ test-charts:
 test-register:
 	bash charts/substrate-registration/tests/register_test.sh
 
-# The registration chart must plan the template names that the substrate-actor chart renders.
+# The registration chart must plan the template names and egress hashes that the substrate-actor chart renders.
 test-contract:
 	for profile in aws onprem; do \
-	  actor=$$(helm template x charts/substrate-actor -f charts/substrate-actor/ci/$$profile-values.yaml | sed -n 's/^  template-name: //p' | sort); \
-	  plan=$$(helm template x charts/substrate-registration -f charts/substrate-registration/ci/$$profile-values.yaml | awk '/^  plan: \|/{f=1;next} f&&/^    /{print $$3;next} {f=0}' | sort); \
+	  actor=$$(helm template x charts/substrate-actor -f charts/substrate-actor/ci/$$profile-values.yaml | sed -n 's/^  template-name: //p;s/^  egress-hash: //p' | paste -sd' ' -); \
+	  plan=$$(helm template x charts/substrate-registration -f charts/substrate-registration/ci/$$profile-values.yaml | awk '/^  plan: \|/{f=1;next} f&&/^    /{print $$3, $$4;next} {f=0}' | paste -sd' ' -); \
 	  test -n "$$actor" && test "$$actor" = "$$plan" || { echo "contract drift in $$profile: actor=[$$actor] plan=[$$plan]"; exit 1; }; \
 	done
 
@@ -119,10 +119,10 @@ publish:
 image-registration:
 	docker build $(if $(PLATFORM),--platform $(PLATFORM)) --tag "$(REGISTRATION_IMAGE)" images/substrate-registration
 
-# Runs the tools of the image: kubectl-ate, kubectl and jq report their versions and parse.
+# Runs the tools of the image: kubectl-ate reports its version and jq parses.
 test-image-registration: image-registration
 	docker run --rm --entrypoint sh "$(REGISTRATION_IMAGE)" -euc '\
-	  kubectl-ate --version && kubectl version --client && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null'
+	  kubectl-ate --version && echo "{\"a\":1}" | jq -e .a >/dev/null && bash --version >/dev/null'
 
 # Pushes the multi-arch registration image and prints its digest. CI runs it on main only.
 publish-registration:

@@ -22,14 +22,19 @@ app.kubernetes.io/part-of: substrate-registration
 
 {{- /* The contract with the substrate-actor chart: the template name that chart renders for the same values. The Job refuses to run on a ConfigMap that holds another name, so it never registers stale data. Keep this equal to "substrate-actor.templateName"; make test-contract fails if it drifts. */ -}}
 {{- define "substrate-registration.templateName" -}}
-{{- $inputs := dict "actor" (omit .actor "webhook") "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
+{{- $inputs := dict "actor" (omit .actor "webhook" "egress") "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
 {{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}
 {{- end -}}
 
-{{- /* One line for each actor: name, atespace and the template name to register. */ -}}
+{{- /* Equal to "substrate-actor.egressHash". */ -}}
+{{- define "substrate-registration.egressHash" -}}
+{{- toJson (default (list) .actor.egress) | sha256sum | trunc 10 -}}
+{{- end -}}
+
+{{- /* One line for each actor: name, atespace, the template name and the egress hash to register. */ -}}
 {{- define "substrate-registration.plan" -}}
 {{- range $actor := .Values.actors -}}
-{{ $actor.name }} {{ $actor.atespace }} {{ include "substrate-registration.templateName" (dict "root" $ "actor" $actor) }}
+{{ $actor.name }} {{ $actor.atespace }} {{ include "substrate-registration.templateName" (dict "root" $ "actor" $actor) }} {{ include "substrate-registration.egressHash" (dict "actor" $actor) }}
 {{ end -}}
 {{- end -}}
 

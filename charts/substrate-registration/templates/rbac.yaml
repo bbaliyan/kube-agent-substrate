@@ -1,4 +1,4 @@
-{{- /* What kubectl-ate needs to reach ate-api-server: read the Service, list its pods and port-forward to one. The Job also reads the Deployment to wait for it. */ -}}
+{{- /* What kubectl-ate needs to reach ate-api-server: read the Service, list its pods and port-forward to one. */ -}}
 {{- $sa := include "substrate-registration.serviceAccountName" . -}}
 {{- $name := include "substrate-registration.fullname" . -}}
 apiVersion: v1
@@ -30,9 +30,6 @@ rules:
   - apiGroups: [""]
     resources: [pods/portforward]
     verbs: [get, create]
-  - apiGroups: [apps]
-    resources: [deployments]
-    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -51,35 +48,3 @@ subjects:
   - kind: ServiceAccount
     name: {{ $sa }}
     namespace: {{ .Release.Namespace }}
-{{- if .Values.rbac.clusterTrustBundles }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ $name }}-{{ .Release.Namespace }}
-  labels:
-    {{- include "substrate-registration.labels" . | nindent 4 }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-rules:
-  - apiGroups: [certificates.k8s.io]
-    resources: [clustertrustbundles]
-    verbs: [list]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ $name }}-{{ .Release.Namespace }}
-  labels:
-    {{- include "substrate-registration.labels" . | nindent 4 }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ $name }}-{{ .Release.Namespace }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ $sa }}
-    namespace: {{ .Release.Namespace }}
-{{- end }}

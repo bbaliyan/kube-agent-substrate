@@ -208,3 +208,30 @@ tests:
       - equal:
           path: data["template-name"]
           value: pr-review-453ef36640
+
+  - it: keeps the template name when only the egress rules change
+    template: templates/actor.yaml
+    set:
+      snapshotStorageLocation: objectstore://example-snapshots
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          env:
+            LOG_LEVEL: info
+          resources:
+            cpuMillicores: 2000
+            memoryBytes: 4294967296
+          egress:
+            - protocol: https
+              hostnames: [git.example.com]
+    asserts:
+      - equal:
+          path: data["template-name"]
+          value: pr-review-a175edb34e
+      - notEqual:
+          path: data["egress-hash"]
+          value: 4f53cda18c
+      - matchRegex:
+          path: data["egress-policy.json"]
+          pattern: '"rules":\[\{"https":\{"hostnames":\["git.example.com"\]\}\}\]'

@@ -55,11 +55,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": { "name": { "type": "string" } }
-    },
-    "rbac": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": { "clusterTrustBundles": { "type": "boolean" } }
     }
   }
 }

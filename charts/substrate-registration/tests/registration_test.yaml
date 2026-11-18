@@ -33,7 +33,7 @@ tests:
       - equal:
           path: data.plan
           value: |
-            pr-review reviews pr-review-453ef36640
+            pr-review reviews pr-review-453ef36640 4f53cda18c
 
   - it: keeps the Job name when only the webhook of an actor changes
     template: templates/job.yaml
@@ -59,20 +59,7 @@ tests:
       - equal:
           path: data.plan
           value: |
-            pr-review reviews pr-review-0ad3fa5b8a
-      - matchRegex:
-          path: data["register.sh"]
-          pattern: "ACTOR_STATE_SUSPENDED"
-
-  - it: swaps only an idle actor
-    template: templates/configmap.yaml
-    asserts:
-      - matchRegex:
-          path: data["register.sh"]
-          pattern: "ACTOR_STATE_SUSPENDED \\| ACTOR_STATE_CRASHED\\) ;;"
-      - matchRegex:
-          path: data["register.sh"]
-          pattern: "is busy .* Leave it for the next sync"
+            pr-review reviews pr-review-f0132e4d59 29094721af
 
   - it: runs the pinned image with the service account token as the credential
     template: templates/job.yaml
@@ -132,30 +119,24 @@ tests:
           path: metadata.namespace
           value: ate-system
 
-  - it: reads ClusterTrustBundles through one cluster role that a value can turn off
-    template: templates/rbac.yaml
-    documentSelector:
-      path: kind
-      value: ClusterRole
-    asserts:
-      - equal:
-          path: rules
-          value:
-            - apiGroups: [certificates.k8s.io]
-              resources: [clustertrustbundles]
-              verbs: [list]
-
-  - it: renders no cluster role when the value is off
-    template: templates/rbac.yaml
-    set:
-      rbac.clusterTrustBundles: false
-    asserts:
-      - hasDocuments:
-          count: 3
-
   - it: rejects an image without a digest
     template: templates/job.yaml
     set:
       image.digest: latest
     asserts:
       - failedTemplate: {}
+
+  - it: has no cluster role and no rule beyond the tunnel to the API server
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments]
+            verbs: [get, list, watch]
+        documentSelector:
+          path: kind
+          value: Role

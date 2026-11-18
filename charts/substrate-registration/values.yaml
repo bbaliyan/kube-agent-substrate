@@ -42,8 +42,3 @@ tolerations: []
 
 serviceAccount:
   name: ""
-
-rbac:
-  # kubectl-ate lists ClusterTrustBundles to verify ate-api-server. Default RBAC
-  # lets every ServiceAccount do this. Turn it off if your cluster allows it already.
-  clusterTrustBundles: true

@@ -79,6 +79,7 @@ spec:
                   optional: true
                   items:
                     - {key: template-name, path: {{ $actor.name }}/template-name}
+                    - {key: egress-hash, path: {{ $actor.name }}/egress-hash}
                     - {key: template.yaml, path: {{ $actor.name }}/template.yaml}
-                    - {key: egress-policy.yaml, path: {{ $actor.name }}/egress-policy.yaml}
+                    - {key: egress-policy.json, path: {{ $actor.name }}/egress-policy.json}
               {{- end }}

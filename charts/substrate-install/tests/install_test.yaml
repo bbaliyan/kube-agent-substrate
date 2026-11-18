@@ -170,3 +170,53 @@ tests:
       config.sandboxClasses: gvisor,microvm
     asserts:
       - failedTemplate: {}
+
+  - it: rejects an empty snapshot location
+    template: templates/job.yaml
+    set:
+      config.storage.snapshotLocation: ""
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a config without the storage block
+    template: templates/job.yaml
+    set:
+      config.storage: null
+    asserts:
+      - failedTemplate: {}
+
+  # The name below is for the ci/aws-values.yaml inputs with serviceAccount.name set to installer. Update it when the patches or defaults change.
+  - it: gives the Job a new name when the node selector changes
+    template: templates/job.yaml
+    set:
+      serviceAccount.name: installer
+      nodeSelector:
+        pool: install
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: "^RELEASE-NAME-substrate-install-[a-f0-9]{10}$"
+      - notEqual:
+          path: metadata.name
+          value: RELEASE-NAME-substrate-install-1eba99f208
+
+  - it: gives the Job a new name when the tolerations change
+    template: templates/job.yaml
+    set:
+      serviceAccount.name: installer
+      tolerations:
+        - key: install
+          operator: Exists
+    asserts:
+      - notEqual:
+          path: metadata.name
+          value: RELEASE-NAME-substrate-install-1eba99f208
+
+  - it: keeps the name when the inputs do not change
+    template: templates/job.yaml
+    set:
+      serviceAccount.name: installer
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-substrate-install-1eba99f208

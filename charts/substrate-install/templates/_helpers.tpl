@@ -69,9 +69,9 @@ current-context: in-cluster
 {{- toJson $data -}}
 {{- end -}}
 
-{{- /* Names the Job and its config map. A change to the version, image, patches or config gives a new name. The same inputs find the Job already there. */ -}}
+{{- /* Names the Job and its config map. A change to anything in the pod spec gives a new name. The same inputs find the Job already there. */ -}}
 {{- define "substrate-install.hash" -}}
-{{- $inputs := dict "image" (include "substrate-install.image" .) "data" (include "substrate-install.configData" . | fromJson) "env" .Values.env "resources" .Values.resources -}}
+{{- $inputs := dict "image" (include "substrate-install.image" .) "data" (include "substrate-install.configData" . | fromJson) "env" .Values.env "resources" .Values.resources "nodeSelector" .Values.nodeSelector "tolerations" .Values.tolerations "serviceAccount" (include "substrate-install.serviceAccountName" .) "backoffLimit" .Values.backoffLimit "activeDeadlineSeconds" .Values.activeDeadlineSeconds -}}
 {{- toJson $inputs | sha256sum | trunc 10 -}}
 {{- end -}}
 

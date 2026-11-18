@@ -13,7 +13,7 @@ Helm charts that run [Agent Substrate](https://github.com/agent-substrate/substr
 
 The `substrate-install` chart runs one Job. The Job installs the Substrate release that you name in `substrate.version`.
 
-The Job uses the install image in `images/substrate-install/`. CI builds the image. The image holds `ate-setup`, `kustomize`, `kubectl-ate` and the checkout of the pinned release. A Substrate release ships no `ate-setup` binary, so the build compiles it from the release tag. The build checks that the tag names the pinned commit and that each downloaded binary matches its checksum. A running Job downloads nothing.
+The Job uses the install image in `images/substrate-install/`. CI builds the image. The image holds `ate-setup`, `kustomize` and the checkout of the pinned release. A Substrate release ships no `ate-setup` binary, so the build compiles it from the release tag. The build checks that the tag names the pinned commit. A running Job downloads nothing.
 
 To install:
 
@@ -22,7 +22,7 @@ To install:
 3. Set `image.digest` to the digest of the published install image.
 4. Install the chart with your values file, or sync it with Argo CD.
 
-The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images` and `sandboxClasses`. Sizing values such as `clusterSize` and `rolloutTimeout` are chart values. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`.
+The `config` value is the body of the upstream `SubstrateInstall` document. The chart adds `images` and `sandboxClasses`. Set `config.storage.snapshotLocation`. It is required, because `ate-setup` stops without it, and the schema rejects an empty value. The sizing settings `clusterSize` and `rolloutTimeout` are `config` keys. Set secret settings, such as the database connection string, in `env` with a `secretKeyRef`.
 
 ### How the Job works
 
@@ -34,13 +34,21 @@ Kubernetes finishes both init containers before the `deploy` container starts. T
 
 The Job reads its kubeconfig from a file that names the service account of the pod. The chart creates the service account. It binds the `cluster-admin` role, because the install creates cluster roles and an account can only grant what it holds. Set `rbac.clusterRole` to use another role.
 
-The Job and its config map carry a hash of the version, the image, the patches and the config in their names. A change to any input creates a new Job. If the inputs are the same, the Job already exists and nothing runs again. `ate-setup` keeps existing secrets and applies the same manifests, so a repeat on an installed cluster changes nothing.
+The Job and its config map carry a hash of the whole pod spec in their names: the image, patches, config, environment, resources, node selector, tolerations and service account. A change to any of them creates a new Job and never edits the immutable template of an old one. If the inputs are the same, the Job already exists and nothing runs again. `ate-setup` keeps existing secrets and applies the same manifests, so a repeat on an installed cluster changes nothing.
 
 ### Patches
 
 A patch is a directory in `charts/substrate-install/patches/`. It holds one kustomize `Component` in `kustomization.yaml`. The chart applies the directories in the order of their names, so start each name with a number.
 
 To add a patch, add a directory. The chart packs it into the config map and the Job applies it. The Job needs no other change.
+
+### Publish the image
+
+CI pushes the multi-arch image to `ghcr.io/bbaliyan/kube-agent-substrate/substrate-install` on every push to `main`. The tag is `main-<short sha>` and the job summary shows the digest. CI does not push release tags. The owner tags.
+
+GitHub creates the package as private. The owner must make it public once, in the package settings.
+
+The chart pins the image by digest. The default `image.digest` is all zeros and never pulls. Set it from the published digest, in a release commit or with a Renovate regex manager. An unset digest fails the pod with an image pull error, not a silent unpinned install.
 
 ### microVMs are out
 

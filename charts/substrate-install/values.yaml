@@ -19,6 +19,9 @@ config:
   rolloutTimeout: 5m0s
   atenet:
     dataplane: envoy
+  # Required. This is a placeholder: set your own location.
+  storage:
+    snapshotLocation: s3://example-snapshots/
 
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.

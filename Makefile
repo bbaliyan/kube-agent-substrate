@@ -17,7 +17,7 @@ IMAGE    ?= substrate-install:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts secrets commit-messages image test-image
+.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts secrets commit-messages image test-image publish
 
 test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts commit-messages
 
@@ -69,4 +69,10 @@ test-image: image
 	  after=$$($$render | grep -c image-credential-provider || true) && \
 	  echo "credential provider lines: before=$$before after=$$after" && \
 	  test "$$before" -gt 0 && test "$$after" -eq 0 && \
-	  ate-setup --help >/dev/null && kubectl-ate --help >/dev/null'
+	  ate-setup --help >/dev/null'
+
+# Pushes the multi-arch install image and prints its digest. CI runs it on main only.
+publish:
+	docker buildx build --platform linux/amd64,linux/arm64 --push --tag "$(IMAGE)" --metadata-file /tmp/publish-metadata.json images/substrate-install
+	@echo "Published $(IMAGE)"
+	@echo "Digest: $$(python3 -c "import json; print(json.load(open('/tmp/publish-metadata.json'))['containerimage.digest'])")"

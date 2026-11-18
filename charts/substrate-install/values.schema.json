@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["substrate", "image", "config"],
+  "properties": {
+    "substrate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "imageRepository"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" },
+        "imageRepository": { "type": "string", "minLength": 1 }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Digest of the install image. A tag alone is rejected."
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Body of the SubstrateInstall document. The chart owns images and sandboxClasses.",
+      "properties": {
+        "namespace": { "type": "string" },
+        "clusterSize": { "type": "string" },
+        "rolloutTimeout": { "type": "string" },
+        "atenet": { "type": "object" },
+        "storage": { "type": "object" },
+        "ingressAllowedSPIFFEIDs": { "type": "string" },
+        "ateapi": { "type": "object" },
+        "podcert": { "type": "object" },
+        "actorJWT": { "type": "object" },
+        "otlpEndpoint": { "type": "string" },
+        "cordonSystemInfraComponents": { "type": "boolean" }
+      }
+    },
+    "env": { "type": "array", "items": { "type": "object" } },
+    "backoffLimit": { "type": "integer", "minimum": 0 },
+    "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+    "resources": { "type": "object" },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "name": { "type": "string" } }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "clusterRole": { "type": "string", "minLength": 1 } }
+    }
+  }
+}

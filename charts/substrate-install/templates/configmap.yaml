@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}
+  labels:
+    {{- include "substrate-install.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+immutable: true
+data:
+  {{- range $key, $value := include "substrate-install.configData" . | fromJson }}
+  {{ $key }}: |-
+    {{- $value | trim | nindent 4 }}
+  {{- end }}

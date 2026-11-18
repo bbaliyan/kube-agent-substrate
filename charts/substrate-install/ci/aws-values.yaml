@@ -1,0 +1,12 @@
+# AWS profile. Placeholder values: copy the file and set your own.
+image:
+  digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+config:
+  clusterSize: size0
+  storage:
+    bucketName: example-snapshots
+    snapshotLocation: s3://example-snapshots/
+  ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/example/sa/frontend
+  ateapi:
+    postgres:
+      storageClass: gp3

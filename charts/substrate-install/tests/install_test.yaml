@@ -1,0 +1,172 @@
+suite: substrate-install
+templates:
+  - templates/job.yaml
+  - templates/configmap.yaml
+  - templates/rbac.yaml
+values:
+  - ../ci/aws-values.yaml
+tests:
+  - it: copies the checkout and patches it in init containers, before the deploy container runs
+    template: templates/job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: seed
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: patch
+      - equal:
+          path: spec.template.spec.initContainers[1].command
+          value:
+            - kustomize
+            - edit
+            - add
+            - component
+            - ../patches/10-atelet-no-credential-provider
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: deploy
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+
+  - it: deploys from the patched copy and not from the image checkout
+    template: templates/job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].workingDir
+          value: /work
+      - equal:
+          path: spec.template.spec.initContainers[1].workingDir
+          value: /work/manifests/ate-install/base
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: work
+            mountPath: /work
+      - contains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: work
+            mountPath: /work
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: patches
+            mountPath: /work/manifests/ate-install/patches
+            readOnly: true
+
+  - it: pins every image by tag and digest and downloads nothing at run time
+    template: templates/job.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].image
+          pattern: "substrate-install:v1.0.0@sha256:[a-f0-9]{64}$"
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-install:v1.0.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [ate-setup, deploy, ate-system, --config, /config/substrate-install.yaml]
+
+  - it: builds its kubeconfig from the service account of the pod
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data.kubeconfig
+          pattern: "tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token"
+      - equal:
+          path: immutable
+          value: true
+
+  - it: installs the gVisor class only and takes the images from the release
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: "sandboxClasses: gvisor\n"
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: "repo: ghcr.io/agent-substrate/substrate\n"
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: "tag: v1.0.0\n"
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: "kind: SubstrateInstall"
+
+  - it: ships the credential provider mounts patch
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-10-atelet-no-credential-provider"]
+          pattern: "image-credential-provider-bin"
+      - matchRegex:
+          path: data["patch-10-atelet-no-credential-provider"]
+          pattern: "op: remove"
+
+  - it: passes the sizing values into the document
+    template: templates/configmap.yaml
+    set:
+      config:
+        clusterSize: size10
+        rolloutTimeout: 10m0s
+    asserts:
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: "clusterSize: size10\n"
+      - matchRegex:
+          path: data["substrate-install.yaml"]
+          pattern: "rolloutTimeout: 10m0s\n"
+
+  - it: names the Job and the config map with a hash of the inputs
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: "^RELEASE-NAME-substrate-install-[a-f0-9]{10}$"
+        template: templates/job.yaml
+      - matchRegex:
+          path: metadata.name
+          pattern: "^RELEASE-NAME-substrate-install-[a-f0-9]{10}$"
+        template: templates/configmap.yaml
+
+  - it: reads the secret settings from the environment of the Job
+    template: templates/job.yaml
+    values:
+      - ../ci/onprem-values.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING
+            valueFrom:
+              secretKeyRef:
+                name: substrate-postgres
+                key: connection-string
+
+  - it: binds its own service account
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-substrate-install
+      - equal:
+          path: roleRef.name
+          value: cluster-admin
+
+  - it: rejects an install image without a digest
+    template: templates/job.yaml
+    set:
+      image.digest: ""
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a value that tries to change the sandbox classes
+    template: templates/job.yaml
+    set:
+      config.sandboxClasses: gvisor,microvm
+    asserts:
+      - failedTemplate: {}

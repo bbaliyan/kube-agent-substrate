@@ -1,0 +1,50 @@
+# Workaround: RKE2 nodes have no kubelet image credential provider.
+# Upstream issues: agent-substrate/substrate#2669 and #3667.
+# This drops the provider flags and the host mounts of atelet, as the upstream
+# kind overlay does.
+#
+# The two test operations fail the install if the upstream arguments move,
+# so a version bump cannot leave a flag behind that points at a missing file.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      kind: DaemonSet
+      name: atelet
+    patch: |-
+      - op: test
+        path: /spec/template/spec/containers/0/name
+        value: atelet
+      - op: test
+        path: /spec/template/spec/containers/0/args/0
+        value: --image-credential-provider-config=/run/image-credential-provider/config.yaml
+      - op: test
+        path: /spec/template/spec/containers/0/args/1
+        value: --image-credential-provider-bin-dir=/run/image-credential-provider/bin
+      - op: remove
+        path: /spec/template/spec/containers/0/args/1
+      - op: remove
+        path: /spec/template/spec/containers/0/args/0
+  - target:
+      kind: DaemonSet
+      name: atelet
+    patch: |-
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: atelet
+      spec:
+        template:
+          spec:
+            containers:
+              - name: atelet
+                volumeMounts:
+                  - mountPath: /run/image-credential-provider/bin
+                    $patch: delete
+                  - mountPath: /run/image-credential-provider/config.yaml
+                    $patch: delete
+            volumes:
+              - name: image-credential-provider-bin
+                $patch: delete
+              - name: image-credential-provider-config
+                $patch: delete

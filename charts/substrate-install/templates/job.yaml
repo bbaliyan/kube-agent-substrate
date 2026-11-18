@@ -1,0 +1,100 @@
+{{- $image := include "substrate-install.image" . -}}
+{{- $names := include "substrate-install.patchNames" . | fromJsonArray -}}
+{{- $patchDir := "/work/manifests/ate-install/patches" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}
+  labels:
+    {{- include "substrate-install.labels" . | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "substrate-install.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "substrate-install.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Step 1: copy the checkout from the image to a writable directory.
+        - name: seed
+          image: {{ $image }}
+          command: [cp, -a, /opt/substrate/., /work/]
+          securityContext:
+            {{- include "substrate-install.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+        # Step 2: patch the copy. This must finish before the deploy starts,
+        # so a sync never applies the upstream defaults.
+        - name: patch
+          image: {{ $image }}
+          workingDir: /work/manifests/ate-install/base
+          command:
+            - kustomize
+            - edit
+            - add
+            - component
+            {{- range $names }}
+            - ../patches/{{ . }}
+            {{- end }}
+          securityContext:
+            {{- include "substrate-install.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
+      containers:
+        - name: deploy
+          image: {{ $image }}
+          workingDir: /work
+          command: [ate-setup, deploy, ate-system, --config, /config/substrate-install.yaml]
+          env:
+            - {name: KUBECONFIG, value: /config/kubeconfig}
+            - {name: ATE_RECORD_DIR, value: /tmp/records}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "substrate-install.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}
+            items:
+              - {key: substrate-install.yaml, path: substrate-install.yaml}
+              - {key: kubeconfig, path: kubeconfig}
+        - name: patches
+          configMap:
+            name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}
+            items:
+              {{- range $names }}
+              - {key: patch-{{ . }}, path: {{ . }}/kustomization.yaml}
+              {{- end }}

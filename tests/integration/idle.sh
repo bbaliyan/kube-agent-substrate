@@ -23,6 +23,8 @@ idle_prom() {
     jq -r '.data.result[] | (.metric | tostring) + " " + .value[1]'
 }
 
+# suspend=true stops the schedule of the CronJob. The checks start each run by hand, so a run
+# never starts in the middle of a step. The test does not prove that Kubernetes fires the schedule.
 idle_install() {
   helm upgrade --install substrate-idle-suspend charts/substrate-idle-suspend -n "$release_ns" \
     --set "image.repository=$cluster_base/substrate-registration" --set "image.digest=$registration_digest" \
@@ -42,12 +44,12 @@ idle_run() {
   while [ "$SECONDS" -lt "$deadline" ]; do
     ok="$(kubectl -n "$release_ns" get job "$job" -o jsonpath='{.status.succeeded}')"
     failed="$(kubectl -n "$release_ns" get job "$job" -o jsonpath='{.status.failed}')"
-    [ -n "$ok" ] || [ -n "$failed" ] && break
+    if [ -n "$ok" ] || [ -n "$failed" ]; then break; fi
     sleep 2
   done
-  kubectl -n "$release_ns" logs "job/$job" --tail=-1 >"$logs/$job.log" 2>&1 || true
+  kubectl -n "$release_ns" logs -l "job-name=$job" --tail=-1 >"$logs/$job.log" 2>&1 || true
   sed 's/^/    | /' "$logs/$job.log"
-  [ -z "$ok" ] || [ "$ok" = 0 ] && [ -z "$failed" ] && fail "$job did not finish in 180 seconds"
+  if [ -z "$ok" ] && [ -z "$failed" ]; then fail "$job did not finish in 180 seconds"; fi
   [ "${ok:-0}" -ge 1 ]
 }
 
@@ -79,7 +81,12 @@ POLICY
   fi
 
   step "Resume the actor with a request and verify that a busy actor is not suspended"
-  actor_is ACTOR_STATE_SUSPENDED || fail "the actor is not SUSPENDED before the idle checks"
+  # Earlier steps moved the actor to new templates, which restart its counters. Take a new baseline.
+  ate resume actor counter -a harness >/dev/null
+  wait_for 300 "the actor is RUNNING" actor_is ACTOR_STATE_RUNNING
+  last_counters="$(counters)"
+  ate suspend actor counter -a harness --mode=sync >/dev/null
+  wait_for 300 "the actor is SUSPENDED" actor_is ACTOR_STATE_SUSPENDED
   # The router resumes the actor on the request. This is the same path as a real client.
   expect_continued "$last_counters"
   last_counters="$(counters)"

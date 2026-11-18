@@ -16,6 +16,9 @@ cd "$(dirname "$0")/../.."
 root="$PWD"
 here="$root/tests/integration"
 
+# shellcheck source=idle.sh
+. "$here/idle.sh"
+
 pinned() { sed -n "s/^$1: *//p" "$here/versions.yaml"; }
 
 cluster="${KIND_CLUSTER_NAME:-substrate-int}"
@@ -469,6 +472,8 @@ grep -q "Create actor" "$logs/registration-egress.log" && fail "an egress change
 [ "$uid_before" = "$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')" ] || fail "an egress change recreated the actor"
 rerun_registration
 if registration_job_log | grep -E "^(Create|Update|Delete|Move)"; then fail "a rerun after the egress update changed something"; fi
+
+idle_checks
 
 step "Done"
 log "Passed in $((SECONDS - started)) seconds."

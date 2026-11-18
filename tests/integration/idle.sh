@@ -63,8 +63,13 @@ idle_cpu_series() {
 }
 
 # True when no request or tunnel was active in the last minute. It is the in-flight query of the chart.
+# A missed scrape makes the series stale, and the query then reads 0 for a tunnel that is still open.
+# On a busy runner that gave a false clear. So the check also needs the samples of the whole minute.
 idle_inflight_clear() {
-  [ "$(idle_value 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[1m:15s])')" = 0 ]
+  local samples
+  samples="$(idle_value 'min(count_over_time(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}[1m]))')"
+  [ "${samples%.*}" -ge 8 ] 2>/dev/null &&
+    [ "$(idle_value 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[1m:15s])')" = 0 ]
 }
 
 # True when no request was routed to the actor in the last minute. It is the routed query of the chart.

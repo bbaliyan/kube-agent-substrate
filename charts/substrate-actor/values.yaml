@@ -1,0 +1,15 @@
+# One entry in `actors` defines one actor: its template, its egress policy and an
+# optional webhook shim with an ingress. See ci/ for complete examples.
+
+# Where the control plane stores snapshots. The bucket name is a consumer input.
+snapshotStorageLocation: objectstore://substrate-snapshots
+
+# The Job that registers each actor with the control plane through kubectl-ate.
+# It is off by default: the chart then renders the ConfigMaps only.
+apply:
+  enabled: false
+  # Image by digest that carries kubectl-ate. Required when apply.enabled is true.
+  # image: registry.example.com/tools/kubectl-ate@sha256:...
+  serviceAccountName: default
+
+actors: []

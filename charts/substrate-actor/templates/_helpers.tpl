@@ -1,0 +1,83 @@
+{{- define "substrate-actor.labels" -}}
+app.kubernetes.io/managed-by: {{ .root.Release.Service }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/part-of: substrate-actor
+substrate.actor: {{ .actor.name }}
+{{- end -}}
+
+{{- define "substrate-actor.selector" -}}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+substrate.actor: {{ .actor.name }}
+substrate.component: webhook
+{{- end -}}
+
+{{- /* The ActorTemplate is a protojson object for kubectl-ate, not a Kubernetes resource. */ -}}
+{{- define "substrate-actor.template" -}}
+metadata:
+  atespace: {{ .actor.atespace }}
+  name: {{ .actor.name }}
+{{- with .actor.workerSelector }}
+workerSelector:
+  matchLabels: {{ toJson . }}
+{{- end }}
+containers:
+- name: {{ .actor.name }}
+  image: {{ .actor.image }}
+{{- with .actor.command }}
+  command: {{ toJson . }}
+{{- end }}
+{{- with .actor.args }}
+  args: {{ toJson . }}
+{{- end }}
+{{- if .actor.env }}
+  env:
+{{- range $name, $value := .actor.env }}
+  - name: {{ $name }}
+    value: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- with .actor.wakeupProbe }}
+  wakeupProbe:
+    httpGet:
+      path: {{ .path }}
+      port: {{ .port }}
+    timeoutSeconds: {{ .timeoutSeconds | default 30 }}
+{{- end }}
+snapshotConfig:
+  storageLocation: {{ .root.Values.snapshotStorageLocation }}
+  preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
+{{- with .actor.resources }}
+resources:
+  limits:
+{{- with .cpuMillicores }}
+    cpuMillicores: {{ . }}
+{{- end }}
+{{- with .memoryBytes }}
+    memoryBytes: {{ . | int64 }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "substrate-actor.egress" -}}
+metadata:
+  atespace: {{ .actor.atespace }}
+  name: default
+rules:
+{{- range .actor.egress }}
+- {{ .protocol }}:
+    hostnames: {{ toJson .hostnames }}
+{{- with .ports }}
+    ports:
+      numbers: {{ toJson . }}
+{{- end }}
+{{- with .credential }}
+    effects:
+      replaceHeaders:
+      - header: {{ .header }}
+{{- with .prefix }}
+        prefix: {{ . | quote }}
+{{- end }}
+        credentialUri: {{ .credentialUri }}
+{{- end }}
+{{- end }}
+{{- end -}}

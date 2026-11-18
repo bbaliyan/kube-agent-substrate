@@ -1,0 +1,47 @@
+# On-prem profile, one actor. Placeholder PR-review example: copy it and set your own values.
+snapshotStorageLocation: objectstore://snapshots
+apply:
+  enabled: true
+  image: registry.example.com/tools/kubectl-ate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+actors:
+  - name: pr-review
+    atespace: reviews
+    image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    args: ["--port=8080"]
+    env:
+      LOG_LEVEL: info
+    workerSelector:
+      workload: pr-review
+    resources:
+      cpuMillicores: 2000
+      memoryBytes: 4294967296
+    wakeupProbe:
+      path: /healthz
+      port: 8080
+    egress:
+      - protocol: https
+        hostnames: [git.example.com]
+        credential:
+          header: Authorization
+          prefix: "Bearer "
+          credentialUri: ate-secret://secrets/reviews/git-token
+      - protocol: tlsPassthrough
+        hostnames: ["*.llm.example.com"]
+        ports: [443]
+    webhook:
+      image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      port: 8080
+      env:
+        TARGET_ATESPACE: reviews
+      secret:
+        name: pr-review-webhook
+        externalSecret:
+          storeName: cluster-secrets
+          storeKind: ClusterSecretStore
+          data:
+            - secretKey: WEBHOOK_SECRET
+              remoteKey: pr-review/webhook-secret
+      ingress:
+        className: traefik
+        host: pr-review.example.com
+        tlsSecretName: pr-review-tls

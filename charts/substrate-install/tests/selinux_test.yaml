@@ -36,7 +36,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["patch-25-atelet-selinux"]
-          pattern: 'name: atelet[\s\S]*seLinuxOptions:
+          pattern: 'name: atelet[\s\S]*seLinuxOptions:\s+level: s0:c100,c200\s+type: container_engine_t'
 \s+level: s0:c100,c200
 \s+type: container_engine_t'
 

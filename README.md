@@ -21,7 +21,7 @@ The Job uses the install image in `images/substrate-install/`. CI builds the ima
 To install:
 
 1. Copy `charts/substrate-install/ci/aws-values.yaml` or `charts/substrate-install/ci/onprem-values.yaml`.
-2. Replace the placeholder values with your own.
+2. Replace the placeholder values with your own. For a small self-managed cluster, start from `examples/onprem/install-values.yaml` instead.
 3. Set `image.digest` to the digest of the published install image.
 4. Install the chart with your values file, or sync it with Argo CD.
 
@@ -115,6 +115,10 @@ GitHub creates the package as private. The owner must make it public once, in th
 
 The chart pins the image by digest. The default `image.digest` is all zeros and never pulls. Set it from the published digest, in a release commit or with a Renovate regex manager. An unset digest fails the pod with an image pull error, not a silent unpinned install.
 
+### SELinux on atelet
+
+On nodes that enforce SELinux, `atelet` runs as `container_t` and cannot write `/var/lib/ate`. It exits at start with `permission denied`. Set `selinux.enabled` to `true`. The chart then generates the patch `25-atelet-selinux`. The patch adds the SELinux type `spc_t` to the pod spec of the `atelet` DaemonSet. A test operation stops the install if upstream moves the `atelet` container. The switch is off by default. Turn it on together with `selinux.enabled` of the `substrate-workers` chart. Upstream issue #3597. `make test-image` applies the patch to the real release manifest.
+
 ### microVMs are out
 
 The install uses the gVisor sandbox class only. The chart sets `sandboxClasses: gvisor` and a value cannot change it. A microVM class on a cluster that is not kind needs a cloud CLI to stage its assets, which the image does not hold. Use gVisor until this changes.
@@ -147,12 +151,11 @@ Use a second pool, with its own CPU model, for other hardware.
 
 ### Node requirements
 
-- The Pod Certificate and ClusterTrustBundle APIs are on.
-- The cluster has a default StorageClass.
-- The namespace of the workers must use the `privileged` Pod Security level. The Baseline level blocks the host path volume and the `spc_t` SELinux type too. `ate-system` must not use the restricted level.
-- Nested virtualization is needed only for microVMs. They are out for now.
+The cluster needs the Pod Certificate and ClusterTrustBundle APIs, a default StorageClass, the `privileged` Pod Security level on the control plane and worker namespaces, and one CPU type for each pool. Nested virtualization is needed only for microVMs, which are out for now. `docs/onprem-nodes.md` lists each requirement with a command that verifies it. `examples/onprem/` holds ready-to-use values for a small cluster with an S3-compatible store (RustFS) in the same cluster.
 
 ### SELinux nodes
+
+This policy covers worker pods only. The `atelet` pods need the `selinux.enabled` switch of the `substrate-install` chart (see "SELinux on atelet"). Turn on both switches.
 
 On nodes that enforce SELinux (the RHEL family), worker pods run as `container_t`. They cannot write the `/var/lib/ate` host path, and the `ateworker` exits at start (upstream issue #3597, open). The WorkerPool has no `securityContext` field and the control plane creates the pods, so only admission can fix it.
 
@@ -340,6 +343,8 @@ Run `make test-commit` in the kube-devenv image. It lints the charts, runs the c
 
 Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the install image and runs the patch steps on the real release checkout. It also applies the generated storage patch of each `ci` values file and verifies the backend on both plugin sidecars. CI runs it, and builds the arm64 image. CI does not push the image yet.
 
+`make test-examples` lints and renders the values of `examples/onprem/` for every chart, validates them against the schemas, and verifies that the install values point at the RustFS Service and turn the SELinux patch on.
+
 The render lint is a quick lint. It runs `helm template` and `kubeconform` for each file in `charts/*/ci/`: the `aws` and `onprem` profiles, each with one actor and with several. It does not prove that an install works.
 
 ### Integration test
@@ -377,7 +382,7 @@ The test does not cover:
 
 Not covered by any check in this repo:
 
-- An install on a real cluster. The integration test runs the same charts and images on kind, which differs from RKE2 and from a Proxmox VM in its node image, its storage class and its network.
+- An install on a real cluster in CI. The integration test runs the same charts and images on kind. A manual run on a Proxmox-hosted RKE2 cluster on AlmaLinux passed once (see `docs/onprem-nodes.md`), and CI does not repeat it.
 
 ## Workaround ledger
 
@@ -395,13 +400,14 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | gVisor class only, because microVM asset staging needs a cloud CLI off kind | none known | The `sandboxClasses` setting in the chart, once the install can stage microVM assets |
 | Storage profile patch `20-storage-profile`: the chart sets an explicit `s3` backend on both object-store plugin sidecars, because the default is GCS and the settings are repeated per container | #3668 (explicit backend), #2378 (one place for the settings) | The generated patch, and set the backend in values |
 | `storage.transferGSAName` and `gcp.projectID` placeholders, and `context`, because `ate-setup` models a cluster that is not kind as GCS | #3651 (open PR: `storage.backend=external` and `--component` for provider storage, not in v1.0.0) | The placeholders, and move the profile to a `--component` |
-| Opt-in SELinux admission policy `selinux.enabled` in the `substrate-workers` chart: worker pods run as `container_t` on SELinux nodes and cannot write `/var/lib/ate`, and a WorkerPool has no `securityContext` | #3597 | The policy and the switch, once worker pods get the right SELinux type without admission |
+| Opt-in SELinux fix, atelet and workers both: the `selinux.enabled` switch of the `substrate-workers` chart (admission policy, because a WorkerPool has no `securityContext`) and the `selinux.enabled` switch of the `substrate-install` chart (patch `25-atelet-selinux` on the atelet pod spec). Both pod kinds run as `container_t` on SELinux nodes and cannot write `/var/lib/ate`. Verified on a Proxmox-hosted RKE2 cluster on AlmaLinux: atelet and a worker exit with `permission denied` without the switch and run with it | #3597 | The policy, the patch and both switches, once the pods get the right SELinux type without them |
+| `atelet` is a DaemonSet that tolerates no custom taint, so a worker pool runs only on nodes without one. No chart setting adds a toleration | none known | The note in `docs/onprem-nodes.md`, once the install can add tolerations to atelet |
 | The `substrate-idle-suspend` chart: a CronJob suspends an idle running actor, because Substrate v1.0.0 suspends no idle actor and leaves it to the caller. The planned actor-side `/suspend` endpoint of v1.1 needs the actor to call it, which a third-party image cannot do | #424 (no automatic suspend of idle actors), #483 (idle policy and the actor-side suspend endpoint) | The whole chart, and `curl` in `images/substrate-registration`, once upstream suspends idle actors by its own policy |
 | One CPU model for each WorkerPool, as a documented rule | #1657 | The rule |
 | The control-plane database resources are fixed in the upstream manifests (2 CPUs, 1 GiB) and no chart value sets them | none known | The note in the sizing section, once the install chart can set them |
 | Bucket rule: abort incomplete multipart uploads only, no blanket expiry. Objects left by a failed checkpoint upload need a separate cleanup | #610 | The note, once upstream removes them |
 | PodMonitors for clusters without the GKE `PodMonitoring` CRD, behind `observability.enabled` in the `substrate-workers` chart | #2589 | The PodMonitors |
-| On-prem profile values (planned) | #1782 | The profile, once upstream ships one |
+| On-prem profile values in `examples/onprem/` and the node requirements in `docs/onprem-nodes.md`. Run on a Proxmox-hosted RKE2 cluster on AlmaLinux with RustFS: install, workers, a sample actor with suspend, resume and a restore from RustFS. Not run there: idle-suspend, observability, several nodes | #1782 | The profile, once upstream ships one |
 | RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
 | Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
 | `--preview` in the registration Job, because the actor chart sets a snapshot location in every template and the server forbids it without the client flag | none known | The flag, once the actor chart leaves the location out |

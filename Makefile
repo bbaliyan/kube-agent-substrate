@@ -19,9 +19,9 @@ REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
+.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
-test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract commit-messages
+test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-examples commit-messages
 
 test-fast: secrets
 
@@ -64,6 +64,22 @@ test-contract:
 	  test -n "$$actor" && test "$$actor" = "$$plan" || { echo "contract drift in $$profile: actor=[$$actor] plan=[$$plan]"; exit 1; }; \
 	done
 
+# The ready-to-use values in examples/onprem must lint, render and pass the schemas of each chart.
+# A placeholder digest stands in for the image of the install, registration and idle-suspend charts.
+test-examples:
+	set -e; E=examples/onprem; \
+	digest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd; \
+	for pair in install:install workers:workers actor:actors idle-suspend:idle-suspend registration:actors; do \
+	  chart=$${pair%%:*}; file=$$E/$${pair##*:}-values.yaml; \
+	  set --; case $$chart in actor|workers) ;; *) set -- --set image.digest=$$digest;; esac; \
+	  helm lint charts/substrate-$$chart -f $$file "$$@" >/dev/null; \
+	  helm template x charts/substrate-$$chart -f $$file "$$@" | kubeconform -strict -ignore-missing-schemas -summary >/dev/null; \
+	  echo "examples/onprem: $$chart renders"; \
+	done
+	helm template x charts/substrate-install -f examples/onprem/install-values.yaml -s templates/configmap.yaml | grep -q 'value: http://rustfs.rustfs.svc:9000$$'
+	helm template x charts/substrate-install -f examples/onprem/install-values.yaml -s templates/configmap.yaml | grep -q 'patch-25-atelet-selinux'
+	helm template x charts/substrate-workers -f examples/onprem/workers-values.yaml | grep -q 'kind: MutatingAdmissionPolicy$$'
+
 secrets:
 	$(CHECKS)/secrets.sh .
 
@@ -103,6 +119,9 @@ test-image: image
 	  cp -r charts/substrate-install/patches/. "$$dir/"; \
 	  helm template r charts/substrate-install -f charts/substrate-install/ci/$$profile-values.yaml -s templates/configmap.yaml \
 	    | awk '/^  patch-20-storage-profile: /{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' > "$$dir/20-storage-profile/kustomization.yaml"; \
+	  helm template r charts/substrate-install -f charts/substrate-install/ci/$$profile-values.yaml -s templates/configmap.yaml \
+	    | awk '/^  patch-25-atelet-selinux: /{f=1;next} f&&/^    /{sub(/^    /,"");print;next} f{exit}' > "$$dir.selinux"; \
+	  if [ -s "$$dir.selinux" ]; then mkdir "$$dir/25-atelet-selinux" && mv "$$dir.selinux" "$$dir/25-atelet-selinux/kustomization.yaml"; fi; \
 	  docker run --rm --entrypoint sh -e PROFILE=$$profile -v "$(CURDIR)/$$dir:/patches:ro" "$(IMAGE)" -euc '\
 	    mkdir /tmp/work && cp -a /opt/substrate/. /tmp/work/ && \
 	    mkdir /tmp/work/manifests/ate-install/patches && cp -r /patches/. /tmp/work/manifests/ate-install/patches/ && \
@@ -110,13 +129,15 @@ test-image: image
 	    kustomize edit add component $$(printf "../patches/%s " $$(ls ../patches)) && \
 	    kustomize build --load-restrictor LoadRestrictionsNone . > /tmp/out.yaml && \
 	    keys=0 && if [ "$$PROFILE" = onprem ]; then keys=2; fi && \
+	    spc=0 && if [ "$$PROFILE" = onprem ]; then spc=1; fi && \
+	    test "$$(grep -c "type: spc_t$$" /tmp/out.yaml)" -eq $$spc && \
 	    test "$$(grep -c "name: ATE_STORAGE_BACKEND$$" /tmp/out.yaml)" -eq 2 && \
 	    test "$$(grep -A1 "name: ATE_STORAGE_BACKEND$$" /tmp/out.yaml | grep -c "value: s3$$")" -eq 2 && \
 	    test "$$(grep -c "value: gcs$$" /tmp/out.yaml)" -eq 0 && \
 	    test "$$(grep -c "name: AWS_REGION$$" /tmp/out.yaml)" -eq 2 && \
 	    test "$$(grep -c "name: AWS_ENDPOINT_URL$$" /tmp/out.yaml)" -eq $$keys && \
 	    test "$$(grep -c "name: AWS_ACCESS_KEY_ID$$" /tmp/out.yaml)" -eq $$keys && \
-	    echo "storage profile $$PROFILE: backend set on both plugin sidecars"' || exit 1; \
+	    echo "profile $$PROFILE: backend set on both plugin sidecars, spc_t on $$spc atelet pod spec"' || exit 1; \
 	done
 	for case in default changed renamed; do \
 	  case $$case in \

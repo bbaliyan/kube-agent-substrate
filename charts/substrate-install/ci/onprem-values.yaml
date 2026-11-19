@@ -16,6 +16,8 @@ storage:
         storeName: example-store
         accessKeyRemoteKey: example/object-store/access-key-id
         secretKeyRemoteKey: example/object-store/secret-access-key
+selinux:
+  enabled: true
 config:
   clusterSize: size0
   ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/example/sa/frontend

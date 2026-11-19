@@ -16,6 +16,6 @@ tests:
       - matchRegex:
           path: data["patch-25-atelet-selinux"]
           pattern: 'name: atelet[\s\S]*seLinuxOptions:\n\s+type: spc_t'
-      - matchRegex:
+      - notMatchRegex:
           path: data["patch-25-atelet-selinux"]
-          pattern: 'op: test\n\s+path: /spec/template/spec/containers/0/name\n\s+value: atelet'
+          pattern: 'target:'

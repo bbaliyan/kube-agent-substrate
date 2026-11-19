@@ -65,7 +65,7 @@ test-contract:
 	done
 
 # The ready-to-use values in examples/onprem must lint, render and pass the schemas of each chart.
-# A placeholder digest stands in for the image of the install, registration and idle-suspend charts.
+# The stub CRD for the GKE PodMonitoring kind must validate too. A placeholder digest stands in for the image of the install, registration and idle-suspend charts.
 test-examples:
 	set -e; E=examples/onprem; \
 	digest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd; \
@@ -78,6 +78,8 @@ test-examples:
 	done
 	helm template x charts/substrate-install -f examples/onprem/install-values.yaml -s templates/configmap.yaml | grep -q 'value: http://rustfs.rustfs.svc:9000$$'
 	helm template x charts/substrate-install -f examples/onprem/install-values.yaml -s templates/configmap.yaml | grep -q 'patch-25-atelet-selinux'
+	kubeconform -strict -summary examples/onprem/podmonitoring-crd.yaml
+	grep -q 'name: podmonitorings.monitoring.googleapis.com$$' examples/onprem/podmonitoring-crd.yaml
 	helm template x charts/substrate-workers -f examples/onprem/workers-values.yaml | grep -q 'kind: MutatingAdmissionPolicy$$'
 
 secrets:

@@ -65,11 +65,17 @@ postgres:
   # set this before the first install (see the README).
   storage: 500Gi
 
-# SELinux nodes (RHEL family). Off by default. Sets the SELinux type spc_t on the atelet pods,
-# which cannot write /var/lib/ate otherwise. The substrate-workers chart does the same for the
-# worker pods. See the README, upstream issue #3597.
+# SELinux nodes (RHEL family). Off by default. Sets the SELinux type on the atelet pods, which
+# cannot write /var/lib/ate otherwise. The substrate-workers chart does the same for the worker
+# pods. See the README, upstream issue #3597.
+# type: spc_t works with no node setup. container_engine_t is the stock confined type: it needs
+# /var/lib/ate labelled container_file_t at s0 on the node, and it needs a level.
+# level: the fixed MCS level of the atelet pod, for example s0:c100,c200. Required when type is
+# not spc_t.
 selinux:
   enabled: false
+  type: spc_t
+  level: ""
 
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.

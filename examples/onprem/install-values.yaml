@@ -37,8 +37,12 @@ config:
       # Turns off credential injection. Remove this line to use the bundled Secrets provider.
       credentialProvider: '{"enabled":false}'
 # The nodes run SELinux in enforcing mode. Without this, atelet cannot write /var/lib/ate.
+# container_engine_t needs /var/lib/ate labelled container_file_t at s0 on the node, and a level.
+# The level is an example. Use any fixed level; keep it the same on every node.
 selinux:
   enabled: true
+  type: container_engine_t
+  level: "s0:c100,c200"
 # The bundled Postgres. Upstream asks for 2 CPUs and a 500 Gi volume, which a small cluster cannot hold.
 postgres:
   resources:

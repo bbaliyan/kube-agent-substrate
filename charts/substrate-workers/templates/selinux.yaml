@@ -31,7 +31,7 @@ spec:
       applyConfiguration:
         expression: >-
           Object{spec: Object.spec{securityContext: Object.spec.securityContext{
-          seLinuxOptions: Object.spec.securityContext.seLinuxOptions{type: "spc_t"}}}}
+          seLinuxOptions: Object.spec.securityContext.seLinuxOptions{type: {{ .Values.selinux.type | quote }}}}}}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding

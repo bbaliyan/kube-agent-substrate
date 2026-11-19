@@ -15,6 +15,7 @@ workers:
 # The nodes run SELinux in enforcing mode. See "SELinux nodes" in the README.
 selinux:
   enabled: true
+  type: container_engine_t
 # Set enabled to true if the cluster runs the Prometheus Operator.
 observability:
   enabled: false

@@ -135,9 +135,15 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "patch" (toYaml $merge)) (dict "target" $target "patch" (toYaml $guard)))) }}
 {{- end -}}
 
-{{- /* The SELinux patch: a Component that sets the type spc_t on the atelet pods. On nodes that enforce SELinux, atelet runs as container_t and cannot write /var/lib/ate on the host, so it exits at start. The merge patch has no target, so kustomize fails the build if no DaemonSet named atelet exists. */ -}}
+{{- /* The SELinux patch: a Component that sets selinux.type (and selinux.level) on the atelet pods. A type other than spc_t needs a level: without one, containerd gives each container of the pod its own MCS categories and the object-store plugin cannot read the pod files. On nodes that enforce SELinux, atelet runs as container_t and cannot write /var/lib/ate on the host, so it exits at start. The merge patch has no target, so kustomize fails the build if no DaemonSet named atelet exists. */ -}}
 {{- define "substrate-install.seLinuxPatch" -}}
-{{- $merge := dict "apiVersion" "apps/v1" "kind" "DaemonSet" "metadata" (dict "name" "atelet" "namespace" "ate-system") "spec" (dict "template" (dict "spec" (dict "securityContext" (dict "seLinuxOptions" (dict "type" "spc_t"))))) -}}
+{{- $options := dict "type" .Values.selinux.type -}}
+{{- if .Values.selinux.level -}}
+{{- $_ := set $options "level" .Values.selinux.level -}}
+{{- else if ne .Values.selinux.type "spc_t" -}}
+{{- fail (printf "selinux.level is required when selinux.type is %s: without a level, each container of the atelet pod gets different MCS categories and the object-store plugin cannot read the pod files. Set a level such as s0:c100,c200, or use spc_t." .Values.selinux.type) -}}
+{{- end -}}
+{{- $merge := dict "apiVersion" "apps/v1" "kind" "DaemonSet" "metadata" (dict "name" "atelet" "namespace" "ate-system") "spec" (dict "template" (dict "spec" (dict "securityContext" (dict "seLinuxOptions" $options)))) -}}
 # Generated from the selinux values. Do not edit.
 # Workaround: atelet pods run as container_t on SELinux nodes and cannot write /var/lib/ate.
 # Upstream issue: agent-substrate/substrate#3597.

@@ -19,3 +19,29 @@ tests:
       - notMatchRegex:
           path: data["patch-25-atelet-selinux"]
           pattern: 'target:'
+
+  - it: sets no level by default
+    set:
+      selinux.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["patch-25-atelet-selinux"]
+          pattern: 'level:'
+
+  - it: sets container_engine_t and the level on the atelet pods
+    set:
+      selinux.enabled: true
+      selinux.type: container_engine_t
+      selinux.level: "s0:c100,c200"
+    asserts:
+      - matchRegex:
+          path: data["patch-25-atelet-selinux"]
+          pattern: 'name: atelet[\s\S]*seLinuxOptions:\s+level: s0:c100,c200\s+type: container_engine_t'
+
+  - it: fails when the type is not spc_t and the level is missing
+    set:
+      selinux.enabled: true
+      selinux.type: container_engine_t
+    asserts:
+      - failedTemplate:
+          errorPattern: 'selinux.level is required.*different MCS categories'

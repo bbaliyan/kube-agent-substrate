@@ -41,7 +41,10 @@
     "selinux": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "type": { "type": "string", "minLength": 1 }
+      }
     },
     "observability": {
       "type": "object",

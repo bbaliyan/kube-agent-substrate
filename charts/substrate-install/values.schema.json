@@ -47,7 +47,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" }
+        "enabled": { "type": "boolean" },
+        "type": { "type": "string", "minLength": 1 },
+        "level": { "type": "string" }
       }
     },
     "postgres": {

@@ -73,6 +73,30 @@ tests:
           value: agents-worker-selinux
         documentIndex: 1
 
+  - it: sets the type from the value and keeps spc_t by default
+    template: templates/selinux.yaml
+    documentIndex: 0
+    set:
+      selinux.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.mutations[0].applyConfiguration.expression
+          pattern: 'type: "spc_t"'
+
+  - it: sets container_engine_t on the pod type only
+    template: templates/selinux.yaml
+    documentIndex: 0
+    set:
+      selinux.enabled: true
+      selinux.type: container_engine_t
+    asserts:
+      - matchRegex:
+          path: spec.mutations[0].applyConfiguration.expression
+          pattern: 'type: "container_engine_t"'
+      - notMatchRegex:
+          path: spec.mutations[0].applyConfiguration.expression
+          pattern: 'spc_t|level'
+
   - it: matches worker pods by label only, in the release namespace
     template: templates/selinux.yaml
     documentIndex: 0

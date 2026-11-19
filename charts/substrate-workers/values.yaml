@@ -27,8 +27,11 @@ workers:
 sandboxClass: gvisor
 
 # SELinux nodes (RHEL family). Off by default. See the README, upstream issue #3597.
+# type: spc_t works with no node setup. container_engine_t is the stock confined type: it needs
+# /var/lib/ate labelled container_file_t at s0 on the node. Workers need no level.
 selinux:
   enabled: false
+  type: spc_t
 
 # Prometheus Operator objects. Off by default: a cluster without the operator installs with it off.
 observability:

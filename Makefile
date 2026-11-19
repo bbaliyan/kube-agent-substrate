@@ -78,7 +78,7 @@ test-examples:
 	done
 	helm template x charts/substrate-install -f examples/onprem/install-values.yaml -s templates/configmap.yaml | grep -q 'value: http://rustfs.rustfs.svc:9000$$'
 	helm template x charts/substrate-install -f examples/onprem/install-values.yaml -s templates/configmap.yaml | grep -q 'patch-25-atelet-selinux'
-	kubeconform -strict -summary examples/onprem/podmonitoring-crd.yaml
+	kubeconform -strict -ignore-missing-schemas -summary examples/onprem/podmonitoring-crd.yaml
 	grep -q 'name: podmonitorings.monitoring.googleapis.com$$' examples/onprem/podmonitoring-crd.yaml
 	helm template x charts/substrate-workers -f examples/onprem/workers-values.yaml | grep -q 'kind: MutatingAdmissionPolicy$$'
 

@@ -37,8 +37,6 @@ tests:
       - matchRegex:
           path: data["patch-25-atelet-selinux"]
           pattern: 'name: atelet[\s\S]*seLinuxOptions:\s+level: s0:c100,c200\s+type: container_engine_t'
-\s+level: s0:c100,c200
-\s+type: container_engine_t'
 
   - it: fails when the type is not spc_t and the level is missing
     set:

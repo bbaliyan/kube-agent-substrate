@@ -300,8 +300,11 @@ install_registration() {
 registration_job_log() {
   kubectl -n "$release_ns" logs -l app.kubernetes.io/part-of=substrate-registration --tail=-1
 }
+# The Job name is a hash of the inputs, so two runs on the same inputs share the label. Deleting a
+# Job returns before its pods are gone. Wait for them, or the log of the old pod mixes into the new one.
 rerun_registration() {
   kubectl -n "$release_ns" delete job -l app.kubernetes.io/part-of=substrate-registration --wait >/dev/null
+  kubectl -n "$release_ns" wait pod -l app.kubernetes.io/part-of=substrate-registration --for=delete --timeout=120s >/dev/null
   install_registration "$@"
 }
 
@@ -459,7 +462,10 @@ grep -q "is busy" "$logs/registration-busy.log" || fail "the Job did not report 
 ate suspend actor counter -a harness --mode=sync >/dev/null
 wait_for 300 "the actor is SUSPENDED" actor_is ACTOR_STATE_SUSPENDED
 rerun_registration || { registration_job_log | tail -30; fail "the registration after the suspend failed"; }
-registration_job_log | grep -q "in place" || fail "the actor did not move after it suspended"
+# Read the log into a file first. "grep -q" in a pipe exits at the first match, kubectl then gets
+# SIGPIPE, and pipefail fails the line although the text was found.
+registration_job_log >"$logs/registration-moved.log"
+grep -q "in place" "$logs/registration-moved.log" || fail "the actor did not move after it suspended"
 
 step "Change the egress rules only and verify that the policy updates in place"
 uid_before="$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')"
@@ -471,7 +477,8 @@ grep -q "Update egress policy of harness/counter" "$logs/registration-egress.log
 grep -q "Create actor" "$logs/registration-egress.log" && fail "an egress change recreated the actor"
 [ "$uid_before" = "$(ate get actor counter -a harness -o json | jq -r '.metadata.uid')" ] || fail "an egress change recreated the actor"
 rerun_registration
-if registration_job_log | grep -E "^(Create|Update|Delete|Move)"; then fail "a rerun after the egress update changed something"; fi
+registration_job_log >"$logs/registration-rerun.log"
+if grep -E "^(Create|Update|Delete|Move)" "$logs/registration-rerun.log"; then fail "a rerun after the egress update changed something"; fi
 
 idle_checks
 

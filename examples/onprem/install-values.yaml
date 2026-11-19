@@ -1,0 +1,51 @@
+# substrate-install values for a small self-managed cluster (Proxmox VMs, RKE2, AlmaLinux).
+# Snapshots go to RustFS, an S3-compatible store that runs in the same cluster.
+# Copy the file. Replace every value that says "example" or "placeholder".
+#
+# Before the install:
+#   - Deploy RustFS in the namespace "rustfs" and create the bucket "snapshots".
+#   - Create the namespace ate-system with the label pod-security.kubernetes.io/enforce=privileged.
+#   - Create the Secret "snapshot-store-keys" in ate-system with the keys
+#     access-key-id and secret-access-key. Use the same keys as RustFS.
+# See docs/onprem-nodes.md for the node requirements.
+image:
+  # Placeholder. Set the digest of a published install image.
+  digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+storage:
+  profile: s3-compatible
+  bucket: snapshots
+  region: us-east-1
+  s3Compatible:
+    endpoint: http://rustfs.rustfs.svc:9000
+    pathStyle: true
+    credentials:
+      # An existing Secret. To create it from a secret store instead, set
+      # externalSecret.enabled to true and leave secretName empty.
+      secretName: snapshot-store-keys
+config:
+  clusterSize: size0
+  # The release that holds the registration chart. Its account creates atespaces.
+  ateapi:
+    authz:
+      bootstrapOwners: system:serviceaccount:ate-system:ate-client,system:serviceaccount:substrate-system:substrate-registration
+  # Each client that calls atenet-router. Placeholder: use the identity of your gateway.
+  ingressAllowedSPIFFEIDs: spiffe://cluster.local/ns/example/sa/frontend
+  # Lets an actor template name its own snapshot location.
+  preview: PerTemplateSnapshotLocation
+  atenet:
+    egress:
+      # Turns off credential injection. Remove this line to use the bundled Secrets provider.
+      credentialProvider: '{"enabled":false}'
+# The nodes run SELinux in enforcing mode. Without this, atelet cannot write /var/lib/ate.
+selinux:
+  enabled: true
+# The bundled Postgres. Upstream asks for 2 CPUs and a 500 Gi volume, which a small cluster cannot hold.
+postgres:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  storage: 10Gi

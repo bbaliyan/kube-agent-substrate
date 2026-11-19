@@ -53,7 +53,7 @@ RustFS takes its class from `storageClassName` in its own values. Name a class t
 
 ## 4. Pod Security level
 
-`atelet` mounts the host directories `/dev`, `/var/lib/ate` and the kubelet plugin directories, so it needs the `privileged` level. The worker pods need the host path volume and the `spc_t` SELinux type, which the Baseline level blocks.
+`atelet` mounts the host directories `/dev`, `/var/lib/ate` and the kubelet plugin directories, so it needs the `privileged` level. The worker pods need the host path volume and a SELinux type (`spc_t` or `container_engine_t`), which the Baseline level blocks.
 
 1. Create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`.
 2. Create the namespace of each worker pool with the same label.
@@ -64,14 +64,19 @@ RustFS takes its class from `storageClassName` in its own values. Name a class t
 
 On RHEL-family nodes, SELinux runs in enforcing mode. Pods run as `container_t` and cannot write the host directory `/var/lib/ate`. Upstream issue #3597 tracks this. Two switches fix it:
 
-- `selinux.enabled` in the `substrate-install` chart sets `spc_t` on the `atelet` pods.
-- `selinux.enabled` in the `substrate-workers` chart sets `spc_t` on the worker pods, with an admission policy.
+- `selinux.enabled` in the `substrate-install` chart sets the SELinux type on the `atelet` pods.
+- `selinux.enabled` in the `substrate-workers` chart sets the SELinux type on the worker pods, with an admission policy.
 
-Turn both on when the nodes enforce SELinux.
+Turn both on when the nodes enforce SELinux. Each chart has `selinux.type`. The default is `spc_t`, which is unconfined and needs no node setup. We recommend `container_engine_t`, the stock confined type. With it, set `selinux.level` in the `substrate-install` chart, for example `s0:c100,c200`. A level is required: without it, each container of the `atelet` pod gets different MCS categories and the object-store plugin cannot read the pod files. The `substrate-workers` chart needs no level.
+
+If you use `container_engine_t`, each node must label `/var/lib/ate` as `container_file_t` at level `s0`. A node image can do this at build time. New files in the directory inherit the label.
+
+Known limit: under `container_engine_t` the policy denies the `connectto` of `atelet` to the kubelet socket. The device plugin cannot register `ate.dev/kvm`, so the node offers none. The gVisor class does not need it. Keep `spc_t` if you need that resource.
 
 1. On the node, run `getenforce`. If the output is `Enforcing`, turn both switches on.
 2. After the install, verify `atelet`: run `kubectl -n ate-system get pods -l app=atelet`. Each pod must be `Running`.
-3. Verify the policy: run `kubectl -n <worker namespace> run probe --image=probe --dry-run=server -o jsonpath='{.spec.securityContext.seLinuxOptions.type}' -l ate.dev/worker-pool=<pool>`. The output must be `spc_t`.
+3. Verify the policy: run `kubectl -n <worker namespace> run probe --image=probe --dry-run=server -o jsonpath='{.spec.securityContext.seLinuxOptions.type}' -l ate.dev/worker-pool=<pool>`. The output must be the value of `selinux.type` of the `substrate-workers` chart.
+4. If you use `container_engine_t`, run `ps -eZ` on the node. Verify that `atelet`, the object-store plugin and the workers run as `container_engine_t`.
 
 ## 6. Where `atelet` runs
 

@@ -9,7 +9,7 @@ Helm charts that run [Agent Substrate](https://github.com/agent-substrate/substr
 | `substrate-install` | Installs or upgrades the Substrate control plane with a Job that runs `ate-setup` from a pinned install image |
 | `substrate-registration` | Registers the actors of the `substrate-actor` chart in a running control plane with a Job that runs `kubectl-ate` from a pinned registration image |
 | `substrate-idle-suspend` | Suspends an idle running actor after a set idle time with a CronJob that runs `kubectl-ate` from the registration image. Delete it when upstream ships its own idle policy |
-| `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist, credential injection, webhook shim and ingress |
+| `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist, credential injection, an Envoy webhook shim that checks the sender's token, and ingress |
 | `substrate-workers` | Runs a WorkerPool with its sizing, an opt-in SELinux admission policy and optional PodMonitors and dashboards |
 
 ## Install Substrate
@@ -339,11 +339,65 @@ The `aws` and `onprem` files differ only in values: the snapshot location, the s
 
 The values schema rejects an image reference that has no digest.
 
+## Webhook shim
+
+An actor can have a `webhook` block. The chart then runs a shim in front of the actor. The shim is a stock Envoy pod from a pinned image (`webhookShimImage`). You build no image and write no code.
+
+**Warning: this is a breaking change.** The settings `webhook.image`, `webhook.args` and `webhook.env` no longer exist, and the schema rejects them. The setting `webhook.secret` is now required. Move any custom shim logic to the sender or to the actor.
+
+### How a request flows
+
+1. The sender, for example GitLab, sends the webhook to the shim. With an ingress, the request comes through the ingress.
+2. The shim compares the header `X-Gitlab-Token` with the secret file. If the header is missing or wrong, the shim answers 401.
+3. If the header matches, the shim replaces the token with the hop token. It sets the header `ate-target-actor` to `<atespace>/<actor>`.
+4. The shim sends the request to the ingress router of the control plane over mTLS. The router resumes a suspended actor and routes the request.
+
+The real secret stays in the Secret that `webhook.secret` names. The pod mounts it as a file, and the shim reads the file on every request. A new value in the Secret takes effect after the kubelet refreshes the mount. The actor, the ConfigMap and the values never hold the real secret.
+
+The hop token is a public value. It is not a secret. Set the token that the actor checks to the hop token. The router allowlist guards this last hop, not the hop token.
+
+### Values
+
+| Value | Meaning |
+|---|---|
+| `webhook.secret.name` | The name of the Secret that holds the webhook secret. Required. |
+| `webhook.secret.key` | The key in the Secret. The default is `WEBHOOK_SECRET`. |
+| `webhook.secret.externalSecret` | Makes an ExternalSecret for the Secret. Optional. |
+| `webhook.hopToken` | The token that the actor sees. The default is `substrate-webhook-hop`. |
+| `webhook.port` | The port of the shim and its Service. The default is 8080. |
+| `webhook.timeoutSeconds` | The time that the shim waits for the router. The default is 180. |
+| `webhook.allowFrom` | The `from` entries of a NetworkPolicy for the shim pod. With none, the chart renders no policy. |
+| `webhook.ingress` | An optional Ingress for the shim. |
+| `router.host`, `router.port` | The router Service. The defaults are `atenet-router.ate-system.svc` and 443. |
+
+A suspended or new actor can take about 15 seconds to start. The router can answer 502 or 504 while it resumes the actor. The shim waits up to `webhook.timeoutSeconds` and retries once after a gateway error. The router has not delivered the payload in that case, so the retry is safe.
+
+### Set up the router
+
+1. Install the `substrate-install` chart before you install an actor with a webhook. The shim needs the pod certificate signers of the install.
+2. Add the identity of the shim to `config.ingressAllowedSPIFFEIDs` in the `substrate-install` values. The identity is `spiffe://<trust domain>/ns/<namespace>/sa/<actor>-webhook`. The value is one comma-separated string. Do not replace the list.
+3. Use the HTTPS ingress port of the router (443). The CONNECT listener of the router answers 404 to a plain request.
+4. If the actor listens on a port other than 80, set the port in the actor template. The router reaches the actor on port 80 by default.
+5. To limit who can call the shim, set `webhook.allowFrom`. For an ingress, allow the namespace of the ingress controller. For a sender in the same cluster, allow the namespace of the sender.
+
+### What `make test-shim` verifies
+
+The test renders the chart, starts the rendered shim in Docker as a non-root user on a read-only file system, and sends it to a stand-in router that needs a client certificate. It verifies:
+
+- A missing token, a wrong token, the right token with extra bytes, and a missing secret file all get 401.
+- The right token reaches the router with the target header and the hop token. This also proves the mTLS hop and the router name check.
+- After a change of the secret file, the old token gets 401 and the new token gets 200.
+- The health route answers without a token.
+
+The test does not cover the real router, a real pod certificate signer, the file read under gVisor, a pod with the real Kubernetes security context, or the certificate rotation of the kubelet.
+
 ## Checks
 
 Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets. It also runs the registration script against a stub of `kubectl-ate` (`make test-register`) and checks that the actor and registration charts agree on template names (`make test-contract`). The stub tests the idle gate and the no-change rerun, not the real client. `make test-idle-suspend` runs the script of the `substrate-idle-suspend` chart against stubs of `kubectl-ate` and `curl`.
 
 Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the install image and runs the patch steps on the real release checkout. It also applies the generated storage patch of each `ci` values file and verifies the backend on both plugin sidecars. CI runs it, and builds the arm64 image. CI does not push the image yet.
+
+Run `make test-shim` on a host with Docker, `helm`, `openssl` and `curl`. It runs the webhook shim in Docker against a stand-in router (see "Webhook shim"). CI runs it.
 
 `make test-examples` lints and renders the values of `examples/onprem/` for every chart, validates them against the schemas, and verifies that the install values point at the RustFS Service and turn the SELinux patch on.
 
@@ -378,7 +432,7 @@ The test does not cover:
 - The CPU model of a Proxmox worker pool and the restore of a golden snapshot on another CPU. The cluster has one node.
 - microVMs. The install uses the gVisor class only.
 - Credential injection. The test sets the credential provider to off. The sample actor has egress rules without credentials.
-- The webhook shim, the ingress and the External Secrets resources of the `substrate-actor` chart.
+- The webhook shim against the real router, the ingress and the External Secrets resources of the `substrate-actor` chart. `make test-shim` covers the shim against a stand-in router.
 - Several actors, several nodes and the `arm64` architecture. The test runs the architecture of the host.
 - Registry and object store TLS. The test uses plain HTTP inside the cluster.
 

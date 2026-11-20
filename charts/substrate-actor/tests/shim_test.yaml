@@ -1,0 +1,263 @@
+suite: webhook shim
+templates:
+  - templates/webhook.yaml
+tests:
+  - it: renders a service account, a config map, a deployment and a service for the shim
+    values:
+      - ../ci/onprem-values.yaml
+    asserts:
+      - containsDocument: {kind: ServiceAccount, apiVersion: v1, name: pr-review-webhook}
+        documentIndex: 1
+      - hasDocuments:
+          count: 7
+
+  - it: runs the pinned Envoy image as a non-root user on a read-only file system
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^docker.io/envoyproxy/envoy:v[0-9.]+@sha256:[a-f0-9]{64}$"
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: pr-review-webhook
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: holds no secret value in the pod and mounts the Secret as a file
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
+      - equal:
+          path: spec.template.spec.volumes[1].secret.secretName
+          value: pr-review-webhook
+      - equal:
+          path: spec.template.spec.volumes[1].secret.items[0].path
+          value: WEBHOOK_SECRET
+
+  - it: reads the key that the values name
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook, key: token}
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].secret.items[0].key
+          value: token
+
+  - it: presents the pod identity certificate and trusts the router CA
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[2].projected.sources[0].podCertificate.signerName
+          value: podidentity.podcert.ate.dev/identity
+      - equal:
+          path: spec.template.spec.volumes[2].projected.sources[1].clusterTrustBundle.signerName
+          value: servicedns.podcert.ate.dev/identity
+
+  - it: sets the target actor and the public hop token in the Envoy config
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'replace\("ate-target-actor", "reviews/pr-review"\)'
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'replace\("x-gitlab-token", "substrate-webhook-hop"\)'
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'io.open\("/secrets/WEBHOOK_SECRET", "rb"\)'
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'respond\(\{\[":status"\] = "401"\}'
+
+  - it: takes the hop token from the values
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            hopToken: my-own-hop-token
+            secret: {name: hook}
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'replace\("x-gitlab-token", "my-own-hop-token"\)'
+
+  - it: sends accepted requests to the router over HTTPS and checks its name
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'address: "atenet-router.ate-system.svc", port_value: 443'
+      - matchRegex:
+          path: data["sds-ca.yaml"]
+          pattern: 'exact: "atenet-router.ate-system.svc"'
+      - matchRegex:
+          path: data["sds-client.yaml"]
+          pattern: "watched_directory"
+
+  - it: takes the router address from the values
+    values:
+      - ../ci/onprem-values.yaml
+    set:
+      router: {host: router.other.svc, port: 8443}
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'address: "router.other.svc", port_value: 8443'
+
+  - it: serves on the port of the values
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            port: 9090
+            secret: {name: hook}
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9090
+
+  - it: renders the network policy from allowFrom
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: traefik
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8080
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+
+  - it: renders no network policy and no ingress without allowFrom and ingress
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+    asserts:
+      - hasDocuments:
+          count: 4
+
+  - it: renders the external secret only when the values set one
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret:
+              name: hook
+              externalSecret:
+                storeName: store
+                data:
+                  - {secretKey: WEBHOOK_SECRET, remoteKey: path/to/secret}
+    documentSelector:
+      path: kind
+      value: ExternalSecret
+    asserts:
+      - equal:
+          path: spec.data[0].remoteRef.key
+          value: path/to/secret
+
+  - it: rejects a bring-your-own shim image
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: hook}
+    asserts:
+      - failedTemplate:
+          errorPattern: "image"
+
+  - it: rejects a webhook without a secret
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            port: 8080
+    asserts:
+      - failedTemplate:
+          errorPattern: "secret"
+
+  - it: rejects a hop token that could break the Lua code
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            hopToken: 'a"); os.exit() --'
+            secret: {name: hook}
+    asserts:
+      - failedTemplate:
+          errorPattern: "hopToken"

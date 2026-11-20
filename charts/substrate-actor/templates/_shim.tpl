@@ -2,6 +2,7 @@
 {{- define "substrate-actor.shimEnvoy" -}}
 {{- $webhook := .actor.webhook -}}
 {{- $router := .root.Values.router -}}
+node: {id: webhook-shim, cluster: webhook-shim}
 static_resources:
   listeners:
     - name: webhook
@@ -20,10 +21,6 @@ static_resources:
                       routes:
                         - match: {path: /healthz}
                           direct_response: {status: 200, body: {inline_string: ok}}
-                          typed_per_filter_config:
-                            envoy.filters.http.lua:
-                              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
-                              disabled: true
                         - match: {prefix: /}
                           route:
                             cluster: router
@@ -43,6 +40,7 @@ static_resources:
                             return diff == 0
                           end
                           function envoy_on_request(h)
+                            if h:headers():get(":path") == "/healthz" then return end
                             local f = io.open("/secrets/WEBHOOK_SECRET", "rb")
                             local want = f and f:read("*a")
                             if f then f:close() end

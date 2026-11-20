@@ -7,7 +7,7 @@
 #   REGISTRATION_IMAGE  name of the registration image, for image-registration and test-image-registration
 #   PLATFORM  target platform of image, such as linux/arm64; empty builds for this host
 #
-# image, test-image and test-integration need Docker. Run them on the host, not in the devenv image.
+# image, test-image, test-shim and test-integration need Docker. Run them on the host, not in the devenv image.
 
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
@@ -19,7 +19,7 @@ REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
+.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-shim secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
 test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-examples commit-messages
 
@@ -63,6 +63,11 @@ test-contract:
 	  plan=$$(helm template x charts/substrate-registration -f charts/substrate-registration/ci/$$profile-values.yaml | awk '/^  plan: \|/{f=1;next} f&&/^    /{print $$3, $$4;next} {f=0}' | paste -sd' ' -); \
 	  test -n "$$actor" && test "$$actor" = "$$plan" || { echo "contract drift in $$profile: actor=[$$actor] plan=[$$plan]"; exit 1; }; \
 	done
+
+# The webhook shim that the substrate-actor chart renders, run in Docker against a stand-in router that needs a client certificate.
+# It checks the token rules, the mTLS hop and the rotation of the secret file. Needs docker, helm, openssl and curl on the host.
+test-shim:
+	bash tests/shim/run.sh
 
 # The ready-to-use values in examples/onprem must lint, render and pass the schemas of each chart.
 # The stub CRD for the GKE PodMonitoring kind must validate too. A placeholder digest stands in for the image of the install, registration and idle-suspend charts.

@@ -137,6 +137,9 @@ tests:
       - matchRegex:
           path: data["envoy.yaml"]
           pattern: "per_try_timeout: 60s"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'retry_back_off: \{base_interval: 0.5s, max_interval: 5s\}'
 
   - it: takes the tries and the time of a try from the values
     set:

@@ -388,11 +388,18 @@ The hop token is a public value. It is not a secret. Set the token that the acto
 
 A new actor is born suspended. The first request starts it from the template, and that first start can take about 15 seconds. A later resume is fast: upstream gives under 500 milliseconds. While the router starts or resumes an actor, it can answer 502 or 504.
 
-The shim tries again after a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. The defaults are 2 more tries, 60 seconds for each try and 180 seconds in total. In a rare case, one webhook reaches the actor twice. The actor must tolerate a duplicate. A second review is a smaller loss than a lost review.
+The shim tries again after a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. The defaults are 2 more tries, 60 seconds for each try and 180 seconds in total. Between tries the shim waits with a back-off of 500 milliseconds, up to 5 seconds, so a router that restarts is not retried out within one second. `make test-shim` does not cover the back-off time, because Envoy picks the wait at random. A retry after a 502 or a 504 from a router that already got the request can deliver the webhook twice. After a cold start, duplicates are likely. The actor must tolerate them. A second review is a smaller loss than a lost review.
 
-The shim stops its request when the sender leaves. If the router needs longer than the sender waits, the delivery is lost, because the router never finishes the request. `make test-shim` shows this. GitLab can record a failure for a delivery that times out. For a self-managed GitLab, the administrator sets the limit with `gitlab_rails['webhook_timeout']` in `gitlab.rb`. The GitLab documentation gives no default and no maximum. After four failures in a row, GitLab disables the webhook for 1 minute, and for up to 24 hours after more failures. After 40 failures in a row, it disables the webhook for good.
+The shim stops its request when the sender leaves. If the router needs longer than the sender waits, the delivery is lost, because the router never finishes the request. `make test-shim` shows this. GitLab can record a failure for a delivery that times out. GitLab.com documents a webhook timeout of 10 seconds. A self-managed instance is likely to be similar, so verify the setting on your instance. The administrator sets it with `gitlab_rails['webhook_timeout']` in `gitlab.rb`.
+
+A new actor starts suspended, and its first start takes about 15 seconds. With a 10 second sender timeout, the first delivery to a new actor can be lost. To avoid this:
+
+- Raise the webhook timeout of the sender above `timeoutSeconds` (default 180), where the sender allows it.
+- Keep the actor warm: turn idle suspend off, or set `idleMinutes` above the longest review. A resume is then the normal case. After four failures in a row, GitLab disables the webhook for 1 minute, and for up to 24 hours after more failures. After 40 failures in a row, it disables the webhook for good.
 
 Envoy can answer the sender at once and keep delivering with request mirroring, but a mirrored request is sent once and never retried. A 504 during a start would then lose the webhook, so the chart does not use it.
+
+The readiness and liveness probes use the `/healthz` route, which the shim answers itself. A pod is Ready even if its client certificate for the router is broken. The first delivery shows the fault as a 503.
 
 The shim runs one pod, and the chart makes no PodDisruptionBudget. A node drain stops the shim for a short time, and GitLab records a failure for any delivery in that time.
 

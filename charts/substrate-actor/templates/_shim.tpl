@@ -1,4 +1,4 @@
-{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. The filter removes trailing white space from the file, so a Secret that ends in a new line still matches. The retry policy retries a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. A retry can deliver one webhook twice in a rare case. The actor tolerates that: a second review is a smaller loss than a lost review. */ -}}
+{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. The filter removes trailing white space from the file, so a Secret that ends in a new line still matches. The retry policy retries a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. A retry can deliver one webhook twice, and a cold start makes that likely. The actor tolerates that: a second review is a smaller loss than a lost review. */ -}}
 {{- define "substrate-actor.shimEnvoy" -}}
 {{- $webhook := .actor.webhook -}}
 {{- $router := .root.Values.router -}}
@@ -29,6 +29,7 @@ static_resources:
                               retry_on: "connect-failure,refused-stream,reset-before-request,gateway-error"
                               num_retries: {{ $webhook.retries | default 2 }}
                               per_try_timeout: {{ $webhook.perTryTimeoutSeconds | default 60 }}s
+                              retry_back_off: {base_interval: 0.5s, max_interval: 5s}
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:

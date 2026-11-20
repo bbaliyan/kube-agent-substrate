@@ -3,6 +3,44 @@
   "type": "object",
   "additionalProperties": false,
   "definitions": {
+    "labelSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matchLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "matchExpressions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "operator"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "operator": { "enum": ["In", "NotIn", "Exists", "DoesNotExist"] },
+              "values": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "networkPolicyPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "namespaceSelector": { "$ref": "#/definitions/labelSelector" },
+        "podSelector": { "$ref": "#/definitions/labelSelector" },
+        "ipBlock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cidr"],
+          "properties": {
+            "cidr": { "type": "string", "minLength": 1 },
+            "except": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
     "digestImage": {
       "type": "string",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._-]+(/[a-z0-9._-]+)*(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}$",
@@ -81,7 +119,7 @@
           "type": "array",
           "minItems": 1,
           "description": "The from entries of a NetworkPolicy. With none, the chart renders no policy.",
-          "items": { "type": "object" }
+          "items": { "$ref": "#/definitions/networkPolicyPeer" }
         },
         "secret": {
           "type": "object",

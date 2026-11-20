@@ -348,7 +348,7 @@ An actor can have a `webhook` block. The chart then runs a shim in front of the 
 ### How a request flows
 
 1. The sender, for example GitLab, sends the webhook to the shim. With an ingress, the request comes through the ingress.
-2. The shim compares the header `X-Gitlab-Token` with the secret file. If the header is missing or wrong, the shim answers 401.
+2. The shim compares the header `X-Gitlab-Token` with the secret file. If the header is missing or wrong, the shim answers 401. The shim removes trailing white space and new lines from the file before it compares. If the file is empty, the shim answers 401 to every request.
 3. If the header matches, the shim replaces the token with the hop token. It sets the header `ate-target-actor` to `<atespace>/<actor>`.
 4. The shim sends the request to the ingress router of the control plane over mTLS. The router resumes a suspended actor and routes the request.
 
@@ -365,12 +365,18 @@ The hop token is a public value. It is not a secret. Set the token that the acto
 | `webhook.secret.externalSecret` | Makes an ExternalSecret for the Secret. Optional. |
 | `webhook.hopToken` | The token that the actor sees. The default is `substrate-webhook-hop`. |
 | `webhook.port` | The port of the shim and its Service. The default is 8080. |
-| `webhook.timeoutSeconds` | The time that the shim waits for the router. The default is 180. |
+| `webhook.timeoutSeconds` | The time that the shim waits for the router. The default is 60. |
 | `webhook.allowFrom` | The `from` entries of a NetworkPolicy for the shim pod. With none, the chart renders no policy. |
 | `webhook.ingress` | An optional Ingress for the shim. |
 | `router.host`, `router.port` | The router Service. The defaults are `atenet-router.ate-system.svc` and 443. |
 
-A suspended or new actor can take about 15 seconds to start. The router can answer 502 or 504 while it resumes the actor. The shim waits up to `webhook.timeoutSeconds` and retries once after a gateway error. The router has not delivered the payload in that case, so the retry is safe.
+A suspended or new actor can take about 15 seconds to start. The router resumes the actor before it routes the request. The shim waits up to `webhook.timeoutSeconds` for the answer.
+
+The shim never sends a POST again after a 502 or 504. The actor may already have the payload when the router gives up, and a second delivery would run the same event twice. The shim retries only when the router has not received the request: a failed connection, or a reset before the request is sent.
+
+Plan for the first webhook after a long idle time. GitLab.com waits 10 seconds for an answer. Self-managed GitLab uses the limit that the administrator sets. If the actor needs longer to resume, GitLab records a failure for that delivery. GitLab sends an `Idempotency-Key` header and can send a delivery again, so the actor must handle a duplicate. After four failures in a row, GitLab disables the webhook for a short time. Keep the actor warm if this matters, or resend the delivery from the GitLab page of recent events.
+
+The shim runs one pod, and the chart makes no PodDisruptionBudget. A node drain stops the shim for a short time, and GitLab records a failure for any delivery in that time.
 
 ### Set up the router
 
@@ -382,14 +388,19 @@ A suspended or new actor can take about 15 seconds to start. The router can answ
 
 ### What `make test-shim` verifies
 
-The test renders the chart, starts the rendered shim in Docker as a non-root user on a read-only file system, and sends it to a stand-in router that needs a client certificate. It verifies:
+The test renders the chart and starts the rendered shim in Docker. The shim runs as a non-root user on a read-only file system. It sends requests to a stand-in router that needs a client certificate. The test verifies:
 
-- A missing token, a wrong token, the right token with extra bytes, and a missing secret file all get 401.
-- The right token reaches the router with the target header and the hop token. This also proves the mTLS hop and the router name check.
+- A missing token, a wrong token, and the right token with extra bytes all get 401.
+- A missing secret file, an empty secret file and a secret file of white space only get 401 for every request. An empty token gets 401 too.
+- A secret file that ends in a new line still matches the right token.
+- The right token reaches the router with the target header and the hop token.
 - After a change of the secret file, the old token gets 401 and the new token gets 200.
+- The router answers 502 or 504, and the sender gets that answer. The router receives the POST once, so the shim does not send it again.
+- A router with a certificate for another host name is refused. The shim answers 503.
+- A shim with a client certificate from an unknown CA is refused by the router. The shim answers 503. Another shim with a valid certificate gets 200 from the same router, so the client certificate is what the router checks.
 - The health route answers without a token.
 
-The test does not cover the real router, a real pod certificate signer, the file read under gVisor, a pod with the real Kubernetes security context, or the certificate rotation of the kubelet.
+The test does not cover the real router, a real pod certificate signer, or the kubelet that rotates certificates. It does not cover the file read under gVisor, a pod with the real Kubernetes security context, or a retry after a failed connection.
 
 ## Checks
 

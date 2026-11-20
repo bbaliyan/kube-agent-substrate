@@ -257,6 +257,56 @@ tests:
           path: spec.data[0].remoteRef.key
           value: path/to/secret
 
+  - it: rejects an allowFrom entry with an unknown key
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            allowFrom:
+              - namespace: traefik
+    asserts:
+      - failedTemplate:
+          errorPattern: "allowFrom"
+
+  - it: rejects an allowFrom ip block without a cidr
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            allowFrom:
+              - ipBlock: {except: ["10.0.0.0/8"]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "cidr"
+
+  - it: accepts pod selectors and ip blocks in allowFrom
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            allowFrom:
+              - podSelector: {matchLabels: {app: sender}}
+              - ipBlock: {cidr: 192.0.2.0/24}
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[1].ipBlock.cidr
+          value: 192.0.2.0/24
+
   - it: rejects a bring-your-own shim image
     set:
       actors:

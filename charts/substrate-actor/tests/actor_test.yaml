@@ -160,7 +160,7 @@ tests:
             cpuMillicores: 2000
             memoryBytes: 4294967296
           webhook:
-            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: pr-review-webhook}
             port: 9090
     asserts:
       - equal:
@@ -181,7 +181,7 @@ tests:
             cpuMillicores: 2000
             memoryBytes: 4294967296
           webhook:
-            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: pr-review-webhook}
             port: 8080
     asserts:
       - equal:
@@ -202,7 +202,7 @@ tests:
             cpuMillicores: 2000
             memoryBytes: 4294967296
           webhook:
-            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: pr-review-webhook}
             port: 8080
     asserts:
       - equal:

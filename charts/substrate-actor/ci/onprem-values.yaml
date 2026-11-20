@@ -26,10 +26,11 @@ actors:
         hostnames: ["*.llm.example.com"]
         ports: [443]
     webhook:
-      image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       port: 8080
-      env:
-        TARGET_ATESPACE: reviews
+      allowFrom:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
       secret:
         name: pr-review-webhook
         externalSecret:

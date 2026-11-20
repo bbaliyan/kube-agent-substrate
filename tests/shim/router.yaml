@@ -5,14 +5,13 @@
 #
 # Paths that change the answer:
 #   /status/<code>        answers that status
-#   /cold/<name>/<secs>   the first POST waits <secs> and gets 504, as a router does while it
-#                         resumes a suspended actor. Later POSTs get 200 at once.
-#   /slow/<name>/<secs>   every POST waits <secs>, then gets 200. A cold start that succeeds.
+#   /cold/<name>/<secs>   the first POST waits <secs> and gets 504, as a router can while it
+#                         starts an actor. Later POSTs get 200 at once.
+#   /slow/<name>/<secs>   every POST waits <secs>, then gets 200. A slow start that succeeds.
 # Counters:
 #   GET /count/<path>     how many POST requests reached the router for this path
 #   GET /done/<path>      how many of them the router answered after the wait. A client that
 #                         disconnects early stops the wait, so this count stays lower.
-# A GET / that carries the target header counts under /count/ping. That is the keep-warm request.
 static_resources:
   listeners:
     - name: router
@@ -67,15 +66,6 @@ static_resources:
                             local finished = path:match("^/done(/.*)$")
                             if finished then
                               h:respond({[":status"] = "200"}, "count " .. (done[finished] or 0) .. "\n")
-                              return
-                            end
-                            if headers:get(":method") == "GET" and path == "/" then
-                              if (headers:get("ate-target-actor") or "") == "" then
-                                h:respond({[":status"] = "400"}, "no target\n")
-                                return
-                              end
-                              posts["/ping"] = (posts["/ping"] or 0) + 1
-                              h:respond({[":status"] = "200"}, "ok\n")
                               return
                             end
                             if headers:get(":method") == "POST" then

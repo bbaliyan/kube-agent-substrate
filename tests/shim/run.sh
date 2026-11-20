@@ -28,8 +28,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The test shortens two timeouts, so a try that runs out of time and a keep-warm request take seconds.
-rendered="$(helm template x charts/substrate-actor -f "$values"   --set 'actors[0].webhook.perTryTimeoutSeconds=4' --set 'actors[0].webhook.keepWarmSeconds=2' -s templates/webhook.yaml)"
+# The test shortens the time of one try, so a try that runs out of time takes seconds.
+rendered="$(helm template x charts/substrate-actor -f "$values"   --set 'actors[0].webhook.perTryTimeoutSeconds=4' -s templates/webhook.yaml)"
 image="$(sed -n 's/^ *image: //p' <<<"$rendered")"
 test -n "$image" || { echo "no shim image in the render" >&2; exit 1; }
 
@@ -141,13 +141,13 @@ done_count() { # path: how many POST requests the router answered after its wait
   curl -s -m 20 -H "X-Gitlab-Token: $secret" "http://127.0.0.1:$port/done$1" | sed -n 's/^count //p'
 }
 
-path=/cold/a/1 check "after a cold 504 the retry reaches the router and the sender gets the 200" 200 "actor=reviews/pr-review" -X POST -H "X-Gitlab-Token: $secret" -d '{}'
-expect "the router receives the POST twice after a cold 504" 2 "$(deliveries /cold/a/1)"
+path=/cold/a/1 check "after a 504 while the actor starts, the retry reaches the router and the sender gets the 200" 200 "actor=reviews/pr-review" -X POST -H "X-Gitlab-Token: $secret" -d '{}'
+expect "the router receives the POST twice after a 504 while the actor starts" 2 "$(deliveries /cold/a/1)"
 
 path=/cold/p/6 check "a try that runs out of time is retried and the sender gets the 200" 200 "actor=reviews/pr-review" -X POST -H "X-Gitlab-Token: $secret" -d '{}'
 expect "the router receives the POST twice after a try that ran out of time" 2 "$(deliveries /cold/p/6)"
 
-path=/slow/c/2 check "a slow start that succeeds reaches the sender when the sender waits" 200 "actor=reviews/pr-review" -X POST -H "X-Gitlab-Token: $secret" -d '{}'
+path=/slow/c/2 check "a slow start that succeeds reaches a sender that waits" 200 "actor=reviews/pr-review" -X POST -H "X-Gitlab-Token: $secret" -d '{}'
 expect "the slow router answered once" 1 "$(done_count /slow/c/2)"
 
 # The shim stops the request when the sender leaves. A sender with a short timeout, such as GitLab, loses the delivery.
@@ -155,17 +155,6 @@ curl -s -m 2 -o /dev/null -X POST -H "X-Gitlab-Token: $secret" -d '{}' "http://1
 sleep 7
 expect "a sender that leaves early: the router received the POST" 1 "$(deliveries /slow/b/6)"
 expect "a sender that leaves early: the router never finished the request" 0 "$(done_count /slow/b/6)"
-
-for _ in $(seq 1 10); do
-  [ "$(deliveries /ping)" -ge 2 ] 2>/dev/null && break
-  sleep 1
-done
-if [ "$(deliveries /ping)" -ge 2 ] 2>/dev/null; then
-  echo "ok: the keep-warm request reaches the router with the target header at the set interval"
-else
-  echo "FAIL: the keep-warm request did not reach the router twice"
-  failures=$((failures + 1))
-fi
 
 port="$wrong_port" check "a router with a certificate for another name is refused" 503 "upstream connect error" -X POST -H "X-Gitlab-Token: $secret" -d '{}'
 port="$badcert_port" check "a shim with a certificate from an unknown CA is refused by the router" 503 "upstream connect error" -X POST -H "X-Gitlab-Token: $secret" -d '{}'

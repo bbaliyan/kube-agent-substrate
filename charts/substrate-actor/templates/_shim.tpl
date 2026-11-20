@@ -1,7 +1,9 @@
-{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. The filter removes trailing white space from the file, so a Secret that ends in a new line still matches. The retry policy retries only a request that the router has not received. It never retries after a 502 or 504, because the actor may already have the payload. */ -}}
+{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. The filter removes trailing white space from the file, so a Secret that ends in a new line still matches. The retry policy retries a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. A router answers 502 or 504 while it resumes a suspended actor, so a retry is what delivers the webhook. A retry can deliver one webhook twice in a rare case. The actor tolerates that: a second review is a smaller loss than a lost one. The keep-warm check asks the actor for a 200 at a fixed interval through the router, which resumes a suspended actor. */ -}}
 {{- define "substrate-actor.shimEnvoy" -}}
 {{- $webhook := .actor.webhook -}}
 {{- $router := .root.Values.router -}}
+{{- $warm := 30 -}}
+{{- if hasKey $webhook "keepWarmSeconds" -}}{{- $warm = $webhook.keepWarmSeconds -}}{{- end -}}
 node: {id: webhook-shim, cluster: webhook-shim}
 static_resources:
   listeners:
@@ -24,8 +26,11 @@ static_resources:
                         - match: {prefix: /}
                           route:
                             cluster: router
-                            timeout: {{ $webhook.timeoutSeconds | default 60 }}s
-                            retry_policy: {retry_on: "connect-failure,refused-stream,reset-before-request", num_retries: 1}
+                            timeout: {{ $webhook.timeoutSeconds | default 75 }}s
+                            retry_policy:
+                              retry_on: "connect-failure,refused-stream,reset-before-request,gateway-error"
+                              num_retries: {{ $webhook.retries | default 2 }}
+                              per_try_timeout: {{ $webhook.perTryTimeoutSeconds | default 25 }}s
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:
@@ -58,29 +63,50 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
     - name: router
-      type: STRICT_DNS
-      connect_timeout: 5s
-      load_assignment:
-        cluster_name: router
-        endpoints:
-          - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address: {address: {{ $router.host | quote }}, port_value: {{ $router.port }}}
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-          sni: {{ $router.host | quote }}
-          common_tls_context:
-            tls_certificate_sds_secret_configs:
-              - name: router-client
-                sds_config:
-                  path_config_source: {path: /etc/envoy/sds-client.yaml}
-            validation_context_sds_secret_config:
-              name: router-ca
-              sds_config:
-                path_config_source: {path: /etc/envoy/sds-ca.yaml}
+      {{- include "substrate-actor.shimRouterCluster" (dict "root" .root "name" "router") | nindent 6 }}
+{{- if $warm }}
+    - name: router_warm
+      {{- include "substrate-actor.shimRouterCluster" (dict "root" .root "name" "router_warm") | nindent 6 }}
+      health_checks:
+        - timeout: {{ $webhook.keepWarmTimeoutSeconds | default 30 }}s
+          interval: {{ $warm }}s
+          no_traffic_interval: {{ $warm }}s
+          unhealthy_threshold: 1
+          healthy_threshold: 1
+          http_health_check:
+            host: {{ $router.host | quote }}
+            path: {{ $webhook.keepWarmPath | default "/" | quote }}
+            request_headers_to_add:
+              - header: {key: ate-target-actor, value: {{ printf "%s/%s" .actor.atespace .actor.name | quote }}}
+{{- end }}
+{{- end -}}
+
+{{- /* The router as an upstream: its address and the mTLS settings. The request cluster and the keep-warm cluster share it. */ -}}
+{{- define "substrate-actor.shimRouterCluster" -}}
+{{- $router := .root.Values.router -}}
+type: STRICT_DNS
+connect_timeout: 5s
+load_assignment:
+  cluster_name: {{ .name }}
+  endpoints:
+    - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: {address: {{ $router.host | quote }}, port_value: {{ $router.port }}}
+transport_socket:
+  name: envoy.transport_sockets.tls
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+    sni: {{ $router.host | quote }}
+    common_tls_context:
+      tls_certificate_sds_secret_configs:
+        - name: router-client
+          sds_config:
+            path_config_source: {path: /etc/envoy/sds-client.yaml}
+      validation_context_sds_secret_config:
+        name: router-ca
+        sds_config:
+          path_config_source: {path: /etc/envoy/sds-ca.yaml}
 {{- end -}}
 
 {{- /* The client certificate and key of the pod identity. watched_directory makes Envoy load the files again when the kubelet rotates them. */ -}}

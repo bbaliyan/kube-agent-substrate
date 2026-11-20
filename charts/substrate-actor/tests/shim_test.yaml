@@ -121,7 +121,7 @@ tests:
           path: data["envoy.yaml"]
           pattern: 'replace\("x-gitlab-token", "my-own-hop-token"\)'
 
-  - it: retries only a request that the router has not received
+  - it: retries a refused connection, a 502, a 503, a 504 and a try that runs out of time
     values:
       - ../ci/onprem-values.yaml
     documentSelector:
@@ -130,10 +130,77 @@ tests:
     asserts:
       - matchRegex:
           path: data["envoy.yaml"]
-          pattern: 'retry_on: "connect-failure,refused-stream,reset-before-request"'
+          pattern: 'retry_on: "connect-failure,refused-stream,reset-before-request,gateway-error"'
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "num_retries: 2"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "per_try_timeout: 25s"
+
+  - it: takes the tries and the time of a try from the values
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            retries: 1
+            perTryTimeoutSeconds: 9
+            timeoutSeconds: 30
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "num_retries: 1"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "per_try_timeout: 9s"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "timeout: 30s"
+
+  - it: keeps the actor warm through the router every 30 seconds by default
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "name: router_warm"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "interval: 30s"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'path: "/"'
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'key: ate-target-actor, value: "reviews/pr-review"'
+
+  - it: turns the keep-warm request off when the interval is 0
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            keepWarmSeconds: 0
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
       - notMatchRegex:
           path: data["envoy.yaml"]
-          pattern: "gateway-error|5xx|retriable-status-codes"
+          pattern: "router_warm"
 
   - it: removes trailing white space from the secret file before the compare
     values:
@@ -146,7 +213,7 @@ tests:
           path: data["envoy.yaml"]
           pattern: 'gsub\("%s\+\$", ""\)'
 
-  - it: waits 60 seconds for the router by default and takes the time from the values
+  - it: waits 75 seconds for the router by default and takes the time from the values
     values:
       - ../ci/onprem-values.yaml
     documentSelector:
@@ -155,7 +222,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["envoy.yaml"]
-          pattern: "timeout: 60s"
+          pattern: "timeout: 75s"
 
   - it: sends accepted requests to the router over HTTPS and checks its name
     values:

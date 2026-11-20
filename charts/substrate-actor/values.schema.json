@@ -113,7 +113,12 @@
           "pattern": "^[A-Za-z0-9._-]{8,}$",
           "description": "The public value that the shim sends in X-Gitlab-Token to the actor. It is not the webhook secret."
         },
-        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "description": "The time that the shim waits for the router, all tries together." },
+        "perTryTimeoutSeconds": { "type": "integer", "minimum": 1, "description": "The time that one try waits for the router before the shim tries again." },
+        "retries": { "type": "integer", "minimum": 0, "maximum": 5, "description": "How many times the shim tries again after a refused connection, a 502, a 503, a 504 or a try that ran out of time." },
+        "keepWarmSeconds": { "type": "integer", "minimum": 0, "description": "The seconds between the keep-warm requests. 0 turns them off." },
+        "keepWarmPath": { "type": "string", "pattern": "^/", "description": "The path of the keep-warm request to the actor. The actor must answer 200." },
+        "keepWarmTimeoutSeconds": { "type": "integer", "minimum": 1, "description": "The time that a keep-warm request waits for the actor, for a cold start." },
         "resources": { "type": "object" },
         "allowFrom": {
           "type": "array",

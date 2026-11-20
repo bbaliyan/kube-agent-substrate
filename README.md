@@ -365,16 +365,30 @@ The hop token is a public value. It is not a secret. Set the token that the acto
 | `webhook.secret.externalSecret` | Makes an ExternalSecret for the Secret. Optional. |
 | `webhook.hopToken` | The token that the actor sees. The default is `substrate-webhook-hop`. |
 | `webhook.port` | The port of the shim and its Service. The default is 8080. |
-| `webhook.timeoutSeconds` | The time that the shim waits for the router. The default is 60. |
+| `webhook.timeoutSeconds` | The time that the shim waits for the router, all tries together. The default is 75. |
+| `webhook.retries` | How many more tries the shim makes. The default is 2. |
+| `webhook.perTryTimeoutSeconds` | The time that one try waits. The default is 25. |
+| `webhook.keepWarmSeconds` | The seconds between keep-warm requests to the actor. The default is 30. Set 0 to turn them off. |
+| `webhook.keepWarmPath` | The path of the keep-warm request. The actor must answer 200. The default is `/`. |
+| `webhook.keepWarmTimeoutSeconds` | The time that a keep-warm request waits for a cold actor. The default is 30. |
 | `webhook.allowFrom` | The `from` entries of a NetworkPolicy for the shim pod. With none, the chart renders no policy. |
 | `webhook.ingress` | An optional Ingress for the shim. |
 | `router.host`, `router.port` | The router Service. The defaults are `atenet-router.ate-system.svc` and 443. |
 
-A suspended or new actor can take about 15 seconds to start. The router resumes the actor before it routes the request. The shim waits up to `webhook.timeoutSeconds` for the answer.
+### Cold start
 
-The shim never sends a POST again after a 502 or 504. The actor may already have the payload when the router gives up, and a second delivery would run the same event twice. The shim retries only when the router has not received the request: a failed connection, or a reset before the request is sent.
+A suspended or new actor needs about 15 seconds to start. The router resumes the actor before it routes the request. While it resumes, the router can answer 502 or 504.
 
-Plan for the first webhook after a long idle time. GitLab.com waits 10 seconds for an answer. Self-managed GitLab uses the limit that the administrator sets. If the actor needs longer to resume, GitLab records a failure for that delivery. GitLab sends an `Idempotency-Key` header and can send a delivery again, so the actor must handle a duplicate. After four failures in a row, GitLab disables the webhook for a short time. Keep the actor warm if this matters, or resend the delivery from the GitLab page of recent events.
+The shim tries again after a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. The defaults are 2 more tries, 25 seconds for each try and 75 seconds in total. In a rare case, one webhook reaches the actor twice. The actor must tolerate a duplicate. A second review is a smaller loss than a lost review.
+
+The shim stops its request when the sender leaves. If the actor needs longer to resume than the sender waits, the delivery is lost, because the router never finishes the request. `make test-shim` shows this. Envoy cannot answer the sender at once and keep the delivery going with retries. The chart therefore cannot make a slow start safe on its own. Use these measures:
+
+1. Keep the actor running. Do not install `substrate-idle-suspend` for an actor with a webhook.
+2. Keep the actor warm. Every `webhook.keepWarmSeconds`, the shim asks the actor for a 200 through the router. The router resumes a suspended actor for that request. After a restart of the node or the worker, the actor resumes within one interval. This relies on the router resuming an actor for any request. It is not verified on a real router.
+3. Resume the actor once after you register it, so the first webhook does not find a new actor.
+4. If the sender can wait longer, raise its webhook timeout. For a self-managed GitLab, set `gitlab_rails['webhook_timeout']` in `gitlab.rb`, then reconfigure and restart. The GitLab documentation gives no default and no maximum.
+
+GitLab can record a failure for a delivery that times out. After four failures in a row, GitLab disables the webhook for 1 minute, and up to 24 hours after more failures. After 40 failures in a row, GitLab disables it for good. A request from the GitLab page of recent events can resend a delivery, and a test request that gets a 2xx answer enables the webhook again.
 
 The shim runs one pod, and the chart makes no PodDisruptionBudget. A node drain stops the shim for a short time, and GitLab records a failure for any delivery in that time.
 
@@ -395,12 +409,17 @@ The test renders the chart and starts the rendered shim in Docker. The shim runs
 - A secret file that ends in a new line still matches the right token.
 - The right token reaches the router with the target header and the hop token.
 - After a change of the secret file, the old token gets 401 and the new token gets 200.
-- The router answers 502 or 504, and the sender gets that answer. The router receives the POST once, so the shim does not send it again.
+- A router that always answers 502 or 504 gets the POST 3 times, and the sender gets that answer.
+- A router that answers 504 once, as it does while it resumes an actor, and then answers 200: the retry reaches the router, and the sender gets the 200. The router receives the POST twice.
+- A try that runs out of time is tried again and gets the 200.
+- A slow start that succeeds reaches a sender that waits.
+- A sender that leaves early takes the request with it: the router received the POST and never finished it.
+- The keep-warm request reaches the router at the set interval, with the target header.
 - A router with a certificate for another host name is refused. The shim answers 503.
 - A shim with a client certificate from an unknown CA is refused by the router. The shim answers 503. Another shim with a valid certificate gets 200 from the same router, so the client certificate is what the router checks.
 - The health route answers without a token.
 
-The test does not cover the real router, a real pod certificate signer, or the kubelet that rotates certificates. It does not cover the file read under gVisor, a pod with the real Kubernetes security context, or a retry after a failed connection.
+The test does not cover the real router, a real pod certificate signer, or the kubelet that rotates certificates. It does not cover the file read under gVisor, a pod with the real Kubernetes security context, or a retry after a refused connection. It does not cover whether a real router resumes a suspended actor for a keep-warm request.
 
 ## Checks
 

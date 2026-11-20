@@ -121,6 +121,42 @@ tests:
           path: data["envoy.yaml"]
           pattern: 'replace\("x-gitlab-token", "my-own-hop-token"\)'
 
+  - it: retries only a request that the router has not received
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'retry_on: "connect-failure,refused-stream,reset-before-request"'
+      - notMatchRegex:
+          path: data["envoy.yaml"]
+          pattern: "gateway-error|5xx|retriable-status-codes"
+
+  - it: removes trailing white space from the secret file before the compare
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: 'gsub\("%s\+\$", ""\)'
+
+  - it: waits 60 seconds for the router by default and takes the time from the values
+    values:
+      - ../ci/onprem-values.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "timeout: 60s"
+
   - it: sends accepted requests to the router over HTTPS and checks its name
     values:
       - ../ci/onprem-values.yaml

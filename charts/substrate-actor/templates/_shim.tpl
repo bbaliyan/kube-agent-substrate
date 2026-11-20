@@ -1,4 +1,4 @@
-{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. */ -}}
+{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. The filter removes trailing white space from the file, so a Secret that ends in a new line still matches. The retry policy retries only a request that the router has not received. It never retries after a 502 or 504, because the actor may already have the payload. */ -}}
 {{- define "substrate-actor.shimEnvoy" -}}
 {{- $webhook := .actor.webhook -}}
 {{- $router := .root.Values.router -}}
@@ -24,8 +24,8 @@ static_resources:
                         - match: {prefix: /}
                           route:
                             cluster: router
-                            timeout: {{ $webhook.timeoutSeconds | default 180 }}s
-                            retry_policy: {retry_on: gateway-error, num_retries: 1}
+                            timeout: {{ $webhook.timeoutSeconds | default 60 }}s
+                            retry_policy: {retry_on: "connect-failure,refused-stream,reset-before-request", num_retries: 1}
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:
@@ -44,6 +44,7 @@ static_resources:
                             local f = io.open("/secrets/WEBHOOK_SECRET", "rb")
                             local want = f and f:read("*a")
                             if f then f:close() end
+                            if want then want = (want:gsub("%s+$", "")) end
                             local got = h:headers():get("x-gitlab-token")
                             if not want or want == "" or not got or not equal(got, want) then
                               h:respond({[":status"] = "401"}, "unauthorized\n")

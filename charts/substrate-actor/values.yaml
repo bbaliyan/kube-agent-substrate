@@ -6,7 +6,7 @@ snapshotStorageLocation: objectstore://substrate-snapshots
 
 # The webhook shim of an actor with a `webhook` block runs this Envoy image.
 # renovate: datasource=docker depName=envoyproxy/envoy
-webhookShimImage: docker.io/envoyproxy/envoy:v1.34.12@sha256:bd505f0362a5b0d575b09858fdf884f0860a1971df052ad99df0959fb1396e8d
+webhookShimImage: docker.io/envoyproxy/envoy:v1.40.2@sha256:8de97e654644827d62afdbf7e1d3dc9fee01a8690d410dd1c63a30dc6b6cecbb
 
 # The ingress router of the control plane. The shim sends every accepted request here over mTLS.
 router:

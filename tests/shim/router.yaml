@@ -1,6 +1,9 @@
 # A stand-in for the ingress router of the control plane. It needs a client
 # certificate, as the router does, and answers 200 with the two headers that
-# the shim sets. The test in run.sh sends the shim here.
+# the shim sets. A request to /status/<code> gets that status instead. It counts
+# the POST requests that reach it for each path, and GET /count/<path> returns the
+# count. Run it with one worker (--concurrency 1), so one counter sees every request.
+# The test in run.sh sends the shim here.
 static_resources:
   listeners:
     - name: router
@@ -36,8 +39,23 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
                       default_source_code:
                         inline_string: |
+                          local posts = {}
                           function envoy_on_request(h)
                             local headers = h:headers()
+                            local counted = (headers:get(":path") or ""):match("^/count(/.*)$")
+                            if counted then
+                              h:respond({[":status"] = "200"}, "count " .. (posts[counted] or 0) .. "\n")
+                              return
+                            end
+                            if headers:get(":method") == "POST" then
+                              local path = headers:get(":path")
+                              posts[path] = (posts[path] or 0) + 1
+                            end
+                            local code = (headers:get(":path") or ""):match("^/status/(%d+)$")
+                            if code then
+                              h:respond({[":status"] = code}, "status " .. code .. "\n")
+                              return
+                            end
                             h:respond({[":status"] = "200"},
                               "actor=" .. (headers:get("ate-target-actor") or "") ..
                               " token=" .. (headers:get("x-gitlab-token") or "") .. "\n")

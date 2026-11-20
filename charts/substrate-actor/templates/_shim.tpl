@@ -2,6 +2,13 @@
 {{- define "substrate-actor.shimEnvoy" -}}
 {{- $webhook := .actor.webhook -}}
 {{- $router := .root.Values.router -}}
+{{- /* Helm default treats 0 as empty, so read the retries with hasKey. Envoy waits at most 5 seconds before a retry, so the tries and the waits must fit in the total: 3 x 60 + 2 x 5 = 190. */ -}}
+{{- $retries := ternary $webhook.retries 2 (hasKey $webhook "retries") | int -}}
+{{- $perTry := $webhook.perTryTimeoutSeconds | default 60 | int -}}
+{{- $total := $webhook.timeoutSeconds | default 190 | int -}}
+{{- if lt $total (add (mul (add1 $retries) $perTry) (mul $retries 5)) -}}
+{{- fail (printf "webhook.timeoutSeconds (%d) is too short for %d tries of %d seconds plus up to 5 seconds of back-off between them" $total (add1 $retries) $perTry) -}}
+{{- end -}}
 node: {id: webhook-shim, cluster: webhook-shim}
 static_resources:
   listeners:
@@ -24,12 +31,14 @@ static_resources:
                         - match: {prefix: /}
                           route:
                             cluster: router
-                            timeout: {{ $webhook.timeoutSeconds | default 180 }}s
+                            timeout: {{ $total }}s
+{{- if $retries }}
                             retry_policy:
                               retry_on: "connect-failure,refused-stream,reset-before-request,gateway-error"
-                              num_retries: {{ $webhook.retries | default 2 }}
-                              per_try_timeout: {{ $webhook.perTryTimeoutSeconds | default 60 }}s
+                              num_retries: {{ $retries }}
+                              per_try_timeout: {{ $perTry }}s
                               retry_back_off: {base_interval: 0.5s, max_interval: 5s}
+{{- end }}
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:

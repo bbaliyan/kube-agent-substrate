@@ -377,8 +377,8 @@ The hop token is a public value. It is not a secret. Set the token that the acto
 | `webhook.secret.externalSecret` | Makes an ExternalSecret for the Secret. Optional. |
 | `webhook.hopToken` | The token that the actor sees. The default is `substrate-webhook-hop`. |
 | `webhook.port` | The port of the shim and its Service. The default is 8080. |
-| `webhook.timeoutSeconds` | The time that the shim waits for the router, all tries together. The default is 180. |
-| `webhook.retries` | How many more tries the shim makes. The default is 2. |
+| `webhook.timeoutSeconds` | The time that the shim waits for the router, all tries and back-offs together. The default is 190. The chart fails if it is less than tries x `perTryTimeoutSeconds` + 5 seconds x retries. |
+| `webhook.retries` | How many more tries the shim makes. The default is 2. With 0, the shim makes no retry policy. |
 | `webhook.perTryTimeoutSeconds` | The time that one try waits. The default is 60. |
 | `webhook.allowFrom` | The `from` entries of a NetworkPolicy for the shim pod. With none, the chart renders no policy. |
 | `webhook.ingress` | An optional Ingress for the shim. |
@@ -388,14 +388,16 @@ The hop token is a public value. It is not a secret. Set the token that the acto
 
 A new actor is born suspended. The first request starts it from the template, and that first start can take about 15 seconds. A later resume is fast: upstream gives under 500 milliseconds. While the router starts or resumes an actor, it can answer 502 or 504.
 
-The shim tries again after a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. The defaults are 2 more tries, 60 seconds for each try and 180 seconds in total. Between tries the shim waits with a back-off of 500 milliseconds, up to 5 seconds, so a router that restarts is not retried out within one second. `make test-shim` does not cover the back-off time, because Envoy picks the wait at random. A retry after a 502 or a 504 from a router that already got the request can deliver the webhook twice. After a cold start, duplicates are likely. The actor must tolerate them. A second review is a smaller loss than a lost review.
+The shim tries again after a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. The defaults are 2 more tries, 60 seconds for each try and 190 seconds in total: 3 x 60 seconds of tries plus up to 2 x 5 seconds of back-off. Between tries the shim waits with a back-off of 500 milliseconds, up to 5 seconds, so a router that restarts is not retried out within one second. `make test-shim` does not cover the back-off time, because Envoy picks the wait at random. A retry after a 502 or a 504 from a router that already got the request can deliver the webhook twice. After a cold start, duplicates are likely. The actor must tolerate them. A second review is a smaller loss than a lost review.
 
 The shim stops its request when the sender leaves. If the router needs longer than the sender waits, the delivery is lost, because the router never finishes the request. `make test-shim` shows this. GitLab can record a failure for a delivery that times out. GitLab.com documents a webhook timeout of 10 seconds. A self-managed instance is likely to be similar, so verify the setting on your instance. The administrator sets it with `gitlab_rails['webhook_timeout']` in `gitlab.rb`.
 
 A new actor starts suspended, and its first start takes about 15 seconds. With a 10 second sender timeout, the first delivery to a new actor can be lost. To avoid this:
 
-- Raise the webhook timeout of the sender above `timeoutSeconds` (default 180), where the sender allows it.
-- Keep the actor warm: turn idle suspend off, or set `idleMinutes` above the longest review. A resume is then the normal case. After four failures in a row, GitLab disables the webhook for 1 minute, and for up to 24 hours after more failures. After 40 failures in a row, it disables the webhook for good.
+- Raise the webhook timeout of the sender above `timeoutSeconds` (default 190), where the sender allows it.
+- Keep the actor warm to make a resume the normal case. Turn idle suspend off, or set `idleMinutes` above the longest review. A resume is fast, so a 10 second sender timeout is enough.
+- A warm actor cannot save the first delivery to a new actor. A new actor is born suspended and its first start takes about 15 seconds. Only a longer sender timeout helps there.
+- Failed deliveries also count against the webhook. After four failures in a row, GitLab disables it for 1 minute, and for up to 24 hours after more failures. After 40 failures in a row, it disables it for good.
 
 Envoy can answer the sender at once and keep delivering with request mirroring, but a mirrored request is sent once and never retried. A 504 during a start would then lose the webhook, so the chart does not use it.
 

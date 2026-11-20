@@ -167,6 +167,41 @@ tests:
           path: data["envoy.yaml"]
           pattern: "timeout: 30s"
 
+  - it: renders no retry policy when retries is 0
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            retries: 0
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["envoy.yaml"]
+          pattern: "retry_policy|num_retries"
+      - matchRegex:
+          path: data["envoy.yaml"]
+          pattern: "timeout: 190s"
+
+  - it: fails when the total time is too short for the tries and the back-off
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            secret: {name: hook}
+            timeoutSeconds: 180
+    asserts:
+      - failedTemplate:
+          errorPattern: 'webhook.timeoutSeconds \(180\) is too short'
+
   - it: removes trailing white space from the secret file before the compare
     values:
       - ../ci/onprem-values.yaml
@@ -178,7 +213,7 @@ tests:
           path: data["envoy.yaml"]
           pattern: 'gsub\("%s\+\$", ""\)'
 
-  - it: waits 180 seconds for the router by default and takes the time from the values
+  - it: waits 190 seconds for the router by default and takes the time from the values
     values:
       - ../ci/onprem-values.yaml
     documentSelector:
@@ -187,7 +222,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["envoy.yaml"]
-          pattern: "timeout: 180s"
+          pattern: "timeout: 190s"
 
   - it: sends accepted requests to the router over HTTPS and checks its name
     values:

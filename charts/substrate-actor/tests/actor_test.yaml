@@ -28,6 +28,40 @@ tests:
           path: data["egress-policy.yaml"]
           pattern: "credentialUri: ate-secret://secrets/reviews/git-token"
 
+  - it: mounts the trust bundle of the egress gateway when egressTrustBundle is true
+    values:
+      - ../ci/onprem-values.yaml
+    template: templates/actor.yaml
+    documentSelector:
+      path: metadata.name
+      value: pr-review-actor
+    asserts:
+      - matchRegex:
+          path: data["template.yaml"]
+          pattern: "mountPath: /run/ate/egress-trust-bundle"
+      - matchRegex:
+          path: data["template.yaml"]
+          pattern: "egress-mitm.ate.dev"
+      - matchRegex:
+          path: data["template.yaml"]
+          pattern: "system-roots.ate.dev"
+      - matchRegex:
+          path: data["template.yaml"]
+          pattern: "path: trust-bundle.pem"
+
+  - it: mounts no trust bundle by default
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+    template: templates/actor.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["template.yaml"]
+          pattern: "trust-bundle|systemInfo"
+
   - it: renders one config map per actor
     values:
       - ../ci/aws-multi-values.yaml
@@ -160,7 +194,7 @@ tests:
             cpuMillicores: 2000
             memoryBytes: 4294967296
           webhook:
-            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: pr-review-webhook}
             port: 9090
     asserts:
       - equal:
@@ -181,7 +215,7 @@ tests:
             cpuMillicores: 2000
             memoryBytes: 4294967296
           webhook:
-            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: pr-review-webhook}
             port: 8080
     asserts:
       - equal:
@@ -202,7 +236,7 @@ tests:
             cpuMillicores: 2000
             memoryBytes: 4294967296
           webhook:
-            image: registry.example.com/agents/webhook-shim@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            secret: {name: pr-review-webhook}
             port: 8080
     asserts:
       - equal:

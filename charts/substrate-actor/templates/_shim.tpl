@@ -1,0 +1,121 @@
+{{- /* The Envoy config of the webhook shim. The Lua filter reads the real secret from a file on every request, so a rotated Secret takes effect at once. LuaJIT has no ~ or | operators, so the compare uses the bit library. The compare checks every byte and does not stop at the first difference. The filter removes trailing white space from the file, so a Secret that ends in a new line still matches. The retry policy retries a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. A retry can deliver one webhook twice, and a cold start makes that likely. The actor tolerates that: a second review is a smaller loss than a lost review. */ -}}
+{{- define "substrate-actor.shimEnvoy" -}}
+{{- $webhook := .actor.webhook -}}
+{{- $router := .root.Values.router -}}
+{{- /* Helm default treats 0 as empty, so read the retries with hasKey. Envoy waits at most 5 seconds before a retry, so the tries and the waits must fit in the total: 3 x 60 + 2 x 5 = 190. */ -}}
+{{- $retries := ternary $webhook.retries 2 (hasKey $webhook "retries") | int -}}
+{{- $perTry := $webhook.perTryTimeoutSeconds | default 60 | int -}}
+{{- $total := $webhook.timeoutSeconds | default 190 | int -}}
+{{- if lt $total (add (mul (add1 $retries) $perTry) (mul $retries 5)) -}}
+{{- fail (printf "webhook.timeoutSeconds (%d) is too short for %d tries of %d seconds plus up to 5 seconds of back-off between them" $total (add1 $retries) $perTry) -}}
+{{- end -}}
+node: {id: webhook-shim, cluster: webhook-shim}
+static_resources:
+  listeners:
+    - name: webhook
+      address:
+        socket_address: {address: 0.0.0.0, port_value: {{ $webhook.port | default 8080 }}}
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: webhook
+                route_config:
+                  virtual_hosts:
+                    - name: webhook
+                      domains: ["*"]
+                      routes:
+                        - match: {path: /healthz}
+                          direct_response: {status: 200, body: {inline_string: ok}}
+                        - match: {prefix: /}
+                          route:
+                            cluster: router
+                            timeout: {{ $total }}s
+{{- if $retries }}
+                            retry_policy:
+                              retry_on: "connect-failure,refused-stream,reset-before-request,gateway-error"
+                              num_retries: {{ $retries }}
+                              per_try_timeout: {{ $perTry }}s
+                              retry_back_off: {base_interval: 0.5s, max_interval: 5s}
+{{- end }}
+                http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      default_source_code:
+                        inline_string: |
+                          local function equal(a, b)
+                            local diff = bit.bxor(#a, #b)
+                            for i = 1, math.max(#a, #b) do
+                              diff = bit.bor(diff, bit.bxor(a:byte(i) or 0, b:byte(i) or 0))
+                            end
+                            return diff == 0
+                          end
+                          function envoy_on_request(h)
+                            if h:headers():get(":path") == "/healthz" then return end
+                            local f = io.open("/secrets/WEBHOOK_SECRET", "rb")
+                            local want = f and f:read("*a")
+                            if f then f:close() end
+                            if want then want = (want:gsub("%s+$", "")) end
+                            local got = h:headers():get("x-gitlab-token")
+                            if not want or want == "" or not got or not equal(got, want) then
+                              h:respond({[":status"] = "401"}, "unauthorized\n")
+                              return
+                            end
+                            h:headers():replace("x-gitlab-token", {{ $webhook.hopToken | default "substrate-webhook-hop" | quote }})
+                            h:headers():replace("ate-target-actor", {{ printf "%s/%s" .actor.atespace .actor.name | quote }})
+                          end
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: router
+      type: STRICT_DNS
+      connect_timeout: 5s
+      load_assignment:
+        cluster_name: router
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: {address: {{ $router.host | quote }}, port_value: {{ $router.port }}}
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: {{ $router.host | quote }}
+          common_tls_context:
+            tls_certificate_sds_secret_configs:
+              - name: router-client
+                sds_config:
+                  path_config_source: {path: /etc/envoy/sds-client.yaml}
+            validation_context_sds_secret_config:
+              name: router-ca
+              sds_config:
+                path_config_source: {path: /etc/envoy/sds-ca.yaml}
+{{- end -}}
+
+{{- /* The client certificate and key of the pod identity. watched_directory makes Envoy load the files again when the kubelet rotates them. */ -}}
+{{- define "substrate-actor.shimSdsClient" -}}
+resources:
+  - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+    name: router-client
+    tls_certificate:
+      certificate_chain: {filename: /run/router-client/credential-bundle.pem}
+      private_key: {filename: /run/router-client/credential-bundle.pem}
+      watched_directory: {path: /run/router-client}
+{{- end -}}
+
+{{- /* The CA that signs the serving certificate of the router. The shim checks the router host name against the certificate. */ -}}
+{{- define "substrate-actor.shimSdsCa" -}}
+resources:
+  - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+    name: router-ca
+    validation_context:
+      trusted_ca: {filename: /run/router-client/router-ca.pem}
+      watched_directory: {path: /run/router-client}
+      match_typed_subject_alt_names:
+        - san_type: DNS
+          matcher: {exact: {{ .root.Values.router.host | quote }}}
+{{- end -}}

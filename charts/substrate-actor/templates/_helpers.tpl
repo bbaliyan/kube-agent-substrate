@@ -13,7 +13,9 @@ substrate.component: webhook
 
 {{- /* An ActorTemplate is immutable, so its name carries a hash of what it holds: the actor values without the webhook and the egress rules, and the snapshot location. The substrate-registration chart builds the same name from the same values. */ -}}
 {{- define "substrate-actor.templateName" -}}
-{{- $inputs := dict "actor" (omit .actor "webhook" "egress") "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
+{{- $actor := omit .actor "webhook" "egress" -}}
+{{- if not .actor.egressTrustBundle }}{{- $actor = omit $actor "egressTrustBundle" -}}{{- end -}}
+{{- $inputs := dict "actor" $actor "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
 {{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}
 {{- end -}}
 
@@ -49,6 +51,11 @@ containers:
       port: {{ .port }}
     timeoutSeconds: {{ .timeoutSeconds | default 30 }}
 {{- end }}
+{{- if .actor.egressTrustBundle }}
+  volumeMounts:
+  - name: egress-trust-bundle
+    mountPath: /run/ate/egress-trust-bundle
+{{- end }}
 snapshotConfig:
   storageLocation: {{ .root.Values.snapshotStorageLocation }}
   preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
@@ -61,6 +68,17 @@ resources:
 {{- with .memoryBytes }}
     memoryBytes: {{ . | int64 }}
 {{- end }}
+{{- end }}
+{{- if .actor.egressTrustBundle }}
+volumes:
+- name: egress-trust-bundle
+  systemInfo:
+    dataSources:
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: trust-bundle.pem
 {{- end }}
 {{- end -}}
 

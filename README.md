@@ -339,6 +339,12 @@ The `aws` and `onprem` files differ only in values: the snapshot location, the s
 
 The values schema rejects an image reference that has no digest.
 
+### Trust the egress gateway
+
+An `https` egress rule ends TLS at the egress gateway, so the application must trust the gateway CA. Set `egressTrustBundle: true` on the actor. The chart then adds a system information volume to the ActorTemplate. The volume holds the gateway CA and the public roots in one file, `/run/ate/egress-trust-bundle/trust-bundle.pem`.
+
+The chart does not set environment variables. Point the application at the file. For many programs, set `SSL_CERT_FILE`. Python `requests` reads `REQUESTS_CA_BUNDLE`. See the upstream guide `egress-trust-bundle`. The key changes the template name, so a running actor moves to a new template at the next registration.
+
 ## Webhook shim
 
 An actor can have a `webhook` block. The chart then runs a shim in front of the actor. The shim is a stock Envoy pod from a pinned image (`webhookShimImage`). You build no image and write no code.

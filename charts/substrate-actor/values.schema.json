@@ -181,6 +181,10 @@
             "timeoutSeconds": { "type": "integer", "minimum": 1 }
           }
         },
+        "egressTrustBundle": {
+          "type": "boolean",
+          "description": "Mounts the trust bundle of the egress gateway and the public roots at /run/ate/egress-trust-bundle/trust-bundle.pem. An https egress rule needs it. The application must trust that file, for example through SSL_CERT_FILE."
+        },
         "egress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } },
         "webhook": { "$ref": "#/definitions/webhook" }
       }

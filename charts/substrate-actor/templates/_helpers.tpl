@@ -49,6 +49,11 @@ containers:
       port: {{ .port }}
     timeoutSeconds: {{ .timeoutSeconds | default 30 }}
 {{- end }}
+{{- if .actor.egressTrustBundle }}
+  volumeMounts:
+  - name: egress-trust-bundle
+    mountPath: /run/ate/egress-trust-bundle
+{{- end }}
 snapshotConfig:
   storageLocation: {{ .root.Values.snapshotStorageLocation }}
   preferredFidelity: SNAPSHOT_FIDELITY_MEMORY
@@ -61,6 +66,17 @@ resources:
 {{- with .memoryBytes }}
     memoryBytes: {{ . | int64 }}
 {{- end }}
+{{- end }}
+{{- if .actor.egressTrustBundle }}
+volumes:
+- name: egress-trust-bundle
+  systemInfo:
+    dataSources:
+    - trustBundle:
+        names:
+        - egress-mitm.ate.dev
+        - system-roots.ate.dev
+        path: trust-bundle.pem
 {{- end }}
 {{- end -}}
 

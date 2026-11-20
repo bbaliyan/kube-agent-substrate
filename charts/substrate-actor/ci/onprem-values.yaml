@@ -15,6 +15,7 @@ actors:
     wakeupProbe:
       path: /healthz
       port: 8080
+    egressTrustBundle: true
     egress:
       - protocol: https
         hostnames: [git.example.com]

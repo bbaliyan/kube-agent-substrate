@@ -59,7 +59,7 @@ tests:
       - equal:
           path: data.plan
           value: |
-            pr-review reviews pr-review-f0132e4d59 29094721af
+            pr-review reviews pr-review-8659c5a91c 29094721af
 
   - it: runs the pinned image with the service account token as the credential
     template: templates/job.yaml

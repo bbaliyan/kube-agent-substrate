@@ -9,7 +9,7 @@ Helm charts that run [Agent Substrate](https://github.com/agent-substrate/substr
 | `substrate-install` | Installs or upgrades the Substrate control plane with a Job that runs `ate-setup` from a pinned install image |
 | `substrate-registration` | Registers the actors of the `substrate-actor` chart in a running control plane with a Job that runs `kubectl-ate` from a pinned registration image |
 | `substrate-idle-suspend` | Suspends an idle running actor after a set idle time with a CronJob that runs `kubectl-ate` from the registration image. Delete it when upstream ships its own idle policy |
-| `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist, credential injection, an Envoy webhook shim that checks the sender's token, and ingress |
+| `substrate-actor` | Defines any actor from a list in values: image by digest, environment, egress allowlist and credential injection |
 | `substrate-workers` | Runs a WorkerPool with its sizing, an opt-in SELinux admission policy and optional PodMonitors and dashboards |
 
 ## Install Substrate
@@ -208,7 +208,7 @@ To register:
 
 A busy actor fails the Job so the drift shows in Argo CD. The Job retries up to `backoffLimit` times. The actor then moves if it has suspended. Otherwise, suspend the actor and sync again.
 
-A template is immutable, so its name carries a hash of what it holds: the actor values without the webhook and the egress rules, and the snapshot location. A false `egressTrustBundle` counts as an absent one. A change to the image, command, environment, resources, worker selector or probe gives a new name. A change to the webhook or the egress rules does not. The egress policy has its own hash in the ConfigMap, and the Job compares the policy with the live one. The `substrate-actor` chart renders both values, and the `substrate-registration` chart computes the same values from the same values file. `make test-contract` fails if the two drift.
+A template is immutable, so its name carries a hash of what it holds: the actor values without the egress rules, and the snapshot location. A false `egressTrustBundle` counts as an absent one. A change to the image, command, environment, resources, worker selector or probe gives a new name. A change to the webhook or the egress rules does not. The egress policy has its own hash in the ConfigMap, and the Job compares the policy with the live one. The `substrate-actor` chart renders both values, and the `substrate-registration` chart computes the same values from the same values file. `make test-contract` fails if the two drift.
 
 The Job and its ConfigMap carry a hash of the whole pod spec and the plan in their names, like the install Job. A change creates a new Job. The default values set Argo CD hook annotations, so Argo CD runs the Job again on every sync and deletes the old one first. Helm deletes a finished Job after `ttlSecondsAfterFinished`.
 
@@ -293,7 +293,7 @@ The check of an actor ends at the first busy signal, so the later queries do not
 
 ### An actor that works after it answers
 
-Some actors answer a request at once and keep working in the background. pr-agent does this: its webhook server answers 200, and the review runs after that. A model call can take up to the model timeout, which is 600 seconds in a known setup. During that wait the actor uses almost no CPU, and no request is in flight. All signals can then read idle, and the CronJob can suspend the actor in the middle of a review.
+Some actors answer a request at once and keep working in the background. A webhook server that reviews code can do this: it answers 200, and the review runs after that. A model call can take up to the model timeout, which is 600 seconds in a known setup. During that wait the actor uses almost no CPU, and no request is in flight. All signals can then read idle, and the CronJob can suspend the actor in the middle of a review.
 
 Set `idleMinutes` longer than the longest review, including the model timeout. The default of 30 minutes is long enough for a 600 second timeout. Do not set it below the longest review plus a margin. The `routed` signal keeps the actor busy for `idleMinutes` after the last request, and this is what protects a running review.
 
@@ -341,7 +341,7 @@ The harness does not verify:
 3. Add one entry to `actors` for each actor.
 4. Install the chart with your values file.
 
-The `aws` and `onprem` files differ only in values: the snapshot location, the secret store and the ingress class. The `*-multi-values.yaml` files show several actors in one release.
+The `aws` and `onprem` files differ only in values: the snapshot location and the egress trust bundle. The `*-multi-values.yaml` files show several actors in one release.
 
 The values schema rejects an image reference that has no digest.
 
@@ -351,95 +351,25 @@ An `https` egress rule ends TLS at the egress gateway, so the application must t
 
 The chart does not set environment variables. Point the application at the file. For many programs, set `SSL_CERT_FILE`. Python `requests` reads `REQUESTS_CA_BUNDLE`. See the upstream guide `egress-trust-bundle`. The key changes the template name, so a running actor moves to a new template at the next registration.
 
-## Webhook shim
+## Call an actor through the router
 
-An actor can have a `webhook` block. The chart then runs a shim in front of the actor. The shim is a stock Envoy pod from a pinned image (`webhookShimImage`). You build no image and write no code.
+**Warning: this is a breaking change.** The `webhook` block of an actor, `webhookShimImage` and `router` no longer exist, and the schema rejects them. The chart renders no webhook shim. Run a shim or any other client next to the workload that needs it.
 
-**Warning: this is a breaking change.** The settings `webhook.image`, `webhook.args` and `webhook.env` no longer exist, and the schema rejects them. The setting `webhook.secret` is now required. Move any custom shim logic to the sender or to the actor.
+A client in the cluster reaches an actor through the ingress router of the control plane. The router resumes a suspended actor and routes the request. A new actor is born suspended, and its first start can take about 15 seconds. While the router starts or resumes an actor, it can answer 502 or 504.
 
-### How a request flows
-
-1. The sender, for example GitLab, sends the webhook to the shim. With an ingress, the request comes through the ingress.
-2. The shim compares the header `X-Gitlab-Token` with the secret file. If the header is missing or wrong, the shim answers 401. The shim removes trailing white space and new lines from the file before it compares. If the file is empty, the shim answers 401 to every request.
-3. If the header matches, the shim replaces the token with the hop token. It sets the header `ate-target-actor` to `<atespace>/<actor>`.
-4. The shim sends the request to the ingress router of the control plane over mTLS. The router resumes a suspended actor and routes the request.
-
-The real secret stays in the Secret that `webhook.secret` names. The pod mounts it as a file, and the shim reads the file on every request. A new value in the Secret takes effect after the kubelet refreshes the mount. The actor, the ConfigMap and the values never hold the real secret.
-
-The hop token is a public value. It is not a secret. Set the token that the actor checks to the hop token. The router allowlist guards this last hop, not the hop token.
-
-### Values
-
-| Value | Meaning |
-|---|---|
-| `webhook.secret.name` | The name of the Secret that holds the webhook secret. Required. |
-| `webhook.secret.key` | The key in the Secret. The default is `WEBHOOK_SECRET`. |
-| `webhook.secret.externalSecret` | Makes an ExternalSecret for the Secret. Optional. |
-| `webhook.hopToken` | The token that the actor sees. The default is `substrate-webhook-hop`. |
-| `webhook.port` | The port of the shim and its Service. The default is 8080. |
-| `webhook.timeoutSeconds` | The time that the shim waits for the router, all tries and back-offs together. The default is 190. The chart fails if it is less than tries x `perTryTimeoutSeconds` + 5 seconds x retries. |
-| `webhook.retries` | How many more tries the shim makes. The default is 2. With 0, the shim makes no retry policy. |
-| `webhook.perTryTimeoutSeconds` | The time that one try waits. The default is 60. |
-| `webhook.allowFrom` | The `from` entries of a NetworkPolicy for the shim pod. With none, the chart renders no policy. |
-| `webhook.ingress` | An optional Ingress for the shim. |
-| `router.host`, `router.port` | The router Service. The defaults are `atenet-router.ate-system.svc` and 443. |
-
-### Start and resume
-
-A new actor is born suspended. The first request starts it from the template, and that first start can take about 15 seconds. A later resume is fast: upstream gives under 500 milliseconds. While the router starts or resumes an actor, it can answer 502 or 504.
-
-The shim tries again after a refused connection, a reset before the request, a 502, a 503, a 504 and a try that runs out of time. The defaults are 2 more tries, 60 seconds for each try and 190 seconds in total: 3 x 60 seconds of tries plus up to 2 x 5 seconds of back-off. Between tries the shim waits with a back-off of 500 milliseconds, up to 5 seconds, so a router that restarts is not retried out within one second. `make test-shim` does not cover the back-off time, because Envoy picks the wait at random. A retry after a 502 or a 504 from a router that already got the request can deliver the webhook twice. After a cold start, duplicates are likely. The actor must tolerate them. A second review is a smaller loss than a lost review.
-
-The shim stops its request when the sender leaves. If the router needs longer than the sender waits, the delivery is lost, because the router never finishes the request. `make test-shim` shows this. GitLab can record a failure for a delivery that times out. GitLab.com documents a webhook timeout of 10 seconds. A self-managed instance is likely to be similar, so verify the setting on your instance. The administrator sets it with `gitlab_rails['webhook_timeout']` in `gitlab.rb`.
-
-A new actor starts suspended, and its first start takes about 15 seconds. With a 10 second sender timeout, the first delivery to a new actor can be lost. To avoid this:
-
-- Raise the webhook timeout of the sender above `timeoutSeconds` (default 190), where the sender allows it.
-- Keep the actor warm to make a resume the normal case. Turn idle suspend off, or set `idleMinutes` above the longest review. A resume is fast, so a 10 second sender timeout is enough.
-- A warm actor cannot save the first delivery to a new actor. A new actor is born suspended and its first start takes about 15 seconds. Only a longer sender timeout helps there.
-- Failed deliveries also count against the webhook. After four failures in a row, GitLab disables it for 1 minute, and for up to 24 hours after more failures. After 40 failures in a row, it disables it for good.
-
-Envoy can answer the sender at once and keep delivering with request mirroring, but a mirrored request is sent once and never retried. A 504 during a start would then lose the webhook, so the chart does not use it.
-
-The readiness and liveness probes use the `/healthz` route, which the shim answers itself. A pod is Ready even if its client certificate for the router is broken. The first delivery shows the fault as a 503.
-
-The shim runs one pod, and the chart makes no PodDisruptionBudget. A node drain stops the shim for a short time, and GitLab records a failure for any delivery in that time.
-
-### Set up the router
-
-1. Install the `substrate-install` chart before you install an actor with a webhook. The shim needs the pod certificate signers of the install.
-2. Add the identity of the shim to `config.ingressAllowedSPIFFEIDs` in the `substrate-install` values. The identity is `spiffe://<trust domain>/ns/<namespace>/sa/<actor>-webhook`. The value is one comma-separated string. Do not replace the list.
-3. Use the HTTPS ingress port of the router (443). The CONNECT listener of the router answers 404 to a plain request.
-4. The router reaches the actor on port 80 and ignores the port in the Host header. The actor must listen on port 80. Upstream takes another port only from the authority of a CONNECT request, and the shim does not send one.
-5. To limit who can call the shim, set `webhook.allowFrom`. For an ingress, allow the namespace of the ingress controller. For a sender in the same cluster, allow the namespace of the sender.
-
-### What `make test-shim` verifies
-
-The test renders the chart and starts the rendered shim in Docker. The shim runs as a non-root user on a read-only file system. It sends requests to a stand-in router that needs a client certificate. The test verifies:
-
-- A missing token, a wrong token, and the right token with extra bytes all get 401.
-- A missing secret file, an empty secret file and a secret file of white space only get 401 for every request. An empty token gets 401 too.
-- A secret file that ends in a new line still matches the right token.
-- The right token reaches the router with the target header and the hop token.
-- After a change of the secret file, the old token gets 401 and the new token gets 200.
-- A router that always answers 502 or 504 gets the POST 3 times, and the sender gets that answer.
-- A router that answers 504 once, as it can while it starts an actor, and then answers 200: the retry reaches the router, and the sender gets the 200. The router receives the POST twice.
-- A try that runs out of time is tried again and gets the 200.
-- A slow start that succeeds reaches a sender that waits.
-- A sender that leaves early takes the request with it: the router received the POST and never finished it.
-- A router with a certificate for another host name is refused. The shim answers 503.
-- A shim with a client certificate from an unknown CA is refused by the router. The shim answers 503. Another shim with a valid certificate gets 200 from the same router, so the client certificate is what the router checks.
-- The health route answers without a token.
-
-The test does not cover the real router, a real pod certificate signer, or the kubelet that rotates certificates. It does not cover the file read under gVisor, a pod with the real Kubernetes security context, or a retry after a refused connection.
+1. Install the `substrate-install` chart before the client. The client needs the pod certificate signers of the install.
+2. Add the identity of the client to `config.ingressAllowedSPIFFEIDs` in the `substrate-install` values. The identity is `spiffe://<trust domain>/ns/<namespace>/sa/<service account>`. The value is one comma-separated string. Do not replace the list.
+3. Give the client pod a pod certificate of the signer `podidentity.podcert.ate.dev/identity`. It is the client certificate for the router.
+4. Make the client trust the cluster trust bundle of the signer `servicedns.podcert.ate.dev/identity`, and verify the router name against it.
+5. Send the request to `atenet-router.ate-system.svc` on the HTTPS port 443. The CONNECT listener of the router answers 404 to a plain request.
+6. Set the header `ate-target-actor` to `<atespace>/<actor>`.
+7. Make the actor listen on port 80. The router reaches the actor on port 80 and ignores the port in the Host header. The actor template has no port field. Upstream takes another port only from the authority of a CONNECT request.
 
 ## Checks
 
 Run `make test-commit` in the kube-devenv image. It lints the charts, runs the chart unit tests and scans for secrets. It also runs the registration script against a stub of `kubectl-ate` (`make test-register`) and checks that the actor and registration charts agree on template names (`make test-contract`). The stub tests the idle gate and the no-change rerun, not the real client. `make test-idle-suspend` runs the script of the `substrate-idle-suspend` chart against stubs of `kubectl-ate` and `curl`.
 
 Run `make test-image` on a host with Docker, `helm` and `awk`. It builds the install image and runs the patch steps on the real release checkout. It also applies the generated storage patch of each `ci` values file and verifies the backend on both plugin sidecars. CI runs it, and builds the arm64 image. CI does not push the image yet.
-
-Run `make test-shim` on a host with Docker, `helm`, `openssl` and `curl`. It runs the webhook shim in Docker against a stand-in router (see "Webhook shim"). CI runs it.
 
 `make test-examples` lints and renders the values of `examples/onprem/` for every chart, validates them against the schemas, and verifies that the install values point at the RustFS Service and turn the SELinux patch on.
 
@@ -474,7 +404,7 @@ The test does not cover:
 - The CPU model of a Proxmox worker pool and the restore of a golden snapshot on another CPU. The cluster has one node.
 - microVMs. The install uses the gVisor class only.
 - Credential injection. The test sets the credential provider to off. The sample actor has egress rules without credentials.
-- The webhook shim against the real router, the ingress and the External Secrets resources of the `substrate-actor` chart. `make test-shim` covers the shim against a stand-in router.
+- A client that calls an actor through the ingress router.
 - Several actors, several nodes and the `arm64` architecture. The test runs the architecture of the host.
 - Registry and object store TLS. The test uses plain HTTP inside the cluster.
 

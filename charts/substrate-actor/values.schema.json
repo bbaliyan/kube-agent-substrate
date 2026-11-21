@@ -3,44 +3,6 @@
   "type": "object",
   "additionalProperties": false,
   "definitions": {
-    "labelSelector": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "matchLabels": { "type": "object", "additionalProperties": { "type": "string" } },
-        "matchExpressions": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["key", "operator"],
-            "properties": {
-              "key": { "type": "string", "minLength": 1 },
-              "operator": { "enum": ["In", "NotIn", "Exists", "DoesNotExist"] },
-              "values": { "type": "array", "items": { "type": "string" } }
-            }
-          }
-        }
-      }
-    },
-    "networkPolicyPeer": {
-      "type": "object",
-      "additionalProperties": false,
-      "minProperties": 1,
-      "properties": {
-        "namespaceSelector": { "$ref": "#/definitions/labelSelector" },
-        "podSelector": { "$ref": "#/definitions/labelSelector" },
-        "ipBlock": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["cidr"],
-          "properties": {
-            "cidr": { "type": "string", "minLength": 1 },
-            "except": { "type": "array", "items": { "type": "string" } }
-          }
-        }
-      }
-    },
     "digestImage": {
       "type": "string",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9._-]+(/[a-z0-9._-]+)*(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}$",
@@ -80,73 +42,6 @@
         }
       }
     },
-    "externalSecret": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["storeName", "data"],
-      "properties": {
-        "storeName": { "type": "string", "minLength": 1 },
-        "storeKind": { "enum": ["ClusterSecretStore", "SecretStore"] },
-        "data": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["secretKey", "remoteKey"],
-            "properties": {
-              "secretKey": { "type": "string", "minLength": 1 },
-              "remoteKey": { "type": "string", "minLength": 1 }
-            }
-          }
-        }
-      }
-    },
-    "webhook": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["secret"],
-      "properties": {
-        "port": { "$ref": "#/definitions/port" },
-        "hopToken": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9._-]{8,}$",
-          "description": "The public value that the shim sends in X-Gitlab-Token to the actor. It is not the webhook secret."
-        },
-        "timeoutSeconds": { "type": "integer", "minimum": 1, "description": "The time that the shim waits for the router, all tries together." },
-        "perTryTimeoutSeconds": { "type": "integer", "minimum": 1, "description": "The time that one try waits for the router before the shim tries again." },
-        "retries": { "type": "integer", "minimum": 0, "maximum": 5, "description": "How many times the shim tries again after a refused connection, a 502, a 503, a 504 or a try that ran out of time." },
-        "resources": { "type": "object" },
-        "allowFrom": {
-          "type": "array",
-          "minItems": 1,
-          "description": "The from entries of a NetworkPolicy. With none, the chart renders no policy.",
-          "items": { "$ref": "#/definitions/networkPolicyPeer" }
-        },
-        "secret": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["name"],
-          "properties": {
-            "name": { "$ref": "#/definitions/dnsLabel" },
-            "key": { "type": "string", "minLength": 1, "description": "The key of the Secret that holds the webhook secret. Default WEBHOOK_SECRET." },
-            "externalSecret": { "$ref": "#/definitions/externalSecret" }
-          }
-        },
-        "ingress": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["host"],
-          "properties": {
-            "className": { "type": "string" },
-            "host": { "type": "string", "minLength": 1 },
-            "path": { "type": "string" },
-            "tlsSecretName": { "type": "string" },
-            "annotations": { "$ref": "#/definitions/stringMap" }
-          }
-        }
-      }
-    },
     "actor": {
       "type": "object",
       "additionalProperties": false,
@@ -182,22 +77,12 @@
           "type": "boolean",
           "description": "Mounts the trust bundle of the egress gateway and the public roots at /run/ate/egress-trust-bundle/trust-bundle.pem. An https egress rule needs it. The application must trust that file, for example through SSL_CERT_FILE."
         },
-        "egress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } },
-        "webhook": { "$ref": "#/definitions/webhook" }
+        "egress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } }
       }
     }
   },
   "properties": {
     "snapshotStorageLocation": { "type": "string", "pattern": "^[a-z0-9]+://.+" },
-    "webhookShimImage": { "$ref": "#/definitions/digestImage" },
-    "router": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "host": { "type": "string", "minLength": 1, "description": "The name of the router Service. The shim checks it against the serving certificate." },
-        "port": { "$ref": "#/definitions/port" }
-      }
-    },
     "actors": {
       "type": "array",
       "items": { "$ref": "#/definitions/actor" }

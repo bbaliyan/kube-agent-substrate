@@ -35,24 +35,6 @@ tests:
           value: |
             pr-review reviews pr-review-453ef36640 4f53cda18c
 
-  - it: keeps the Job name when only the webhook of an actor changes
-    template: templates/job.yaml
-    set:
-      snapshotStorageLocation: objectstore://example-snapshots
-      actors:
-        - name: pr-review
-          atespace: reviews
-          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-          resources:
-            cpuMillicores: 2000
-            memoryBytes: 4294967296
-          webhook:
-            port: 1
-    asserts:
-      - matchRegex:
-          path: metadata.name
-          pattern: "^RELEASE-NAME-substrate-registration-[a-f0-9]{10}$"
-
   - it: plans the template name that the substrate-actor chart renders
     template: templates/configmap.yaml
     asserts:

@@ -29,16 +29,6 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*(?:image|\\w+Image): \\S+?:(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
       ]
-    },
-    {
-      "customType": "regex",
-      "description": "The Envoy image of the webhook shim in the substrate-actor values",
-      "managerFilePatterns": [
-        "/^charts/substrate-actor/values\\.yaml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\w+: \\S+?:(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
-      ]
     }
   ]
 }

@@ -410,7 +410,7 @@ The shim runs one pod, and the chart makes no PodDisruptionBudget. A node drain 
 1. Install the `substrate-install` chart before you install an actor with a webhook. The shim needs the pod certificate signers of the install.
 2. Add the identity of the shim to `config.ingressAllowedSPIFFEIDs` in the `substrate-install` values. The identity is `spiffe://<trust domain>/ns/<namespace>/sa/<actor>-webhook`. The value is one comma-separated string. Do not replace the list.
 3. Use the HTTPS ingress port of the router (443). The CONNECT listener of the router answers 404 to a plain request.
-4. If the actor listens on a port other than 80, set the port in the actor template. The router reaches the actor on port 80 by default.
+4. The router reaches the actor on port 80 and ignores the port in the Host header. The actor must listen on port 80. Upstream takes another port only from the authority of a CONNECT request, and the shim does not send one.
 5. To limit who can call the shim, set `webhook.allowFrom`. For an ingress, allow the namespace of the ingress controller. For a sender in the same cluster, allow the namespace of the sender.
 
 ### What `make test-shim` verifies

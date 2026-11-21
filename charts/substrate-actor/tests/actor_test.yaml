@@ -1,7 +1,6 @@
 suite: substrate-actor
 templates:
   - templates/actor.yaml
-  - templates/webhook.yaml
 tests:
   - it: renders nothing without actors
     set:
@@ -82,20 +81,6 @@ tests:
           path: data["egress-policy.yaml"]
 
 
-  - it: renders the webhook ingress with the configured host
-    values:
-      - ../ci/onprem-values.yaml
-    template: templates/webhook.yaml
-    documentSelector:
-      path: kind
-      value: Ingress
-    asserts:
-      - equal:
-          path: spec.rules[0].host
-          value: pr-review.example.com
-      - equal:
-          path: spec.ingressClassName
-          value: traefik
 
   - it: accepts a tag together with a digest
     set:
@@ -180,27 +165,6 @@ tests:
           path: data["template.yaml"]
           pattern: "(?m)^  name: pr-review-[a-f0-9]{10}$"
 
-  - it: keeps the template name when only the webhook changes
-    template: templates/actor.yaml
-    set:
-      snapshotStorageLocation: objectstore://example-snapshots
-      actors:
-        - name: pr-review
-          atespace: reviews
-          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-          env:
-            LOG_LEVEL: info
-          resources:
-            cpuMillicores: 2000
-            memoryBytes: 4294967296
-          webhook:
-            secret: {name: pr-review-webhook}
-            port: 9090
-    asserts:
-      - equal:
-          path: data["template-name"]
-          value: pr-review-a175edb34e
-
   - it: keeps the template name for the same inputs
     template: templates/actor.yaml
     set:
@@ -214,9 +178,6 @@ tests:
           resources:
             cpuMillicores: 2000
             memoryBytes: 4294967296
-          webhook:
-            secret: {name: pr-review-webhook}
-            port: 8080
     asserts:
       - equal:
           path: data["template-name"]
@@ -235,9 +196,6 @@ tests:
           resources:
             cpuMillicores: 2000
             memoryBytes: 4294967296
-          webhook:
-            secret: {name: pr-review-webhook}
-            port: 8080
     asserts:
       - equal:
           path: data["template-name"]
@@ -294,3 +252,17 @@ tests:
       - matchRegex:
           path: data["egress-policy.json"]
           pattern: '"rules":\[\{"http":\{"hostnames":\["plain.example.com"\],"ports":\{"numbers":\[80\]\}\}\},\{"https":\{"hostnames":\["git.example.com"\],"ports":\{"numbers":\[8443\]\}\}\},\{"tlsPassthrough":\{"hostnames":\["raw.example.com"\],"ports":\{"numbers":\[443\]\}\}\}\]'
+
+  - it: rejects a webhook block, because the chart runs no shim
+    template: templates/actor.yaml
+    set:
+      actors:
+        - name: pr-review
+          atespace: reviews
+          image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          resources: {cpuMillicores: 1000, memoryBytes: 1073741824}
+          webhook:
+            port: 8080
+    asserts:
+      - failedTemplate:
+          errorPattern: "webhook"

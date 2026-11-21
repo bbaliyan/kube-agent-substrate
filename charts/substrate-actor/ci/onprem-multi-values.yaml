@@ -25,24 +25,6 @@ actors:
       - protocol: tlsPassthrough
         hostnames: ["*.llm.example.com"]
         ports: [443]
-    webhook:
-      port: 8080
-      allowFrom:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: traefik
-      secret:
-        name: pr-review-webhook
-        externalSecret:
-          storeName: cluster-secrets
-          storeKind: ClusterSecretStore
-          data:
-            - secretKey: WEBHOOK_SECRET
-              remoteKey: pr-review/webhook-secret
-      ingress:
-        className: traefik
-        host: pr-review.example.com
-        tlsSecretName: pr-review-tls
   - name: docs-writer
     atespace: writing
     image: registry.example.com/agents/docs-writer@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

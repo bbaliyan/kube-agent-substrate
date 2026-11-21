@@ -33,7 +33,6 @@ jobs:
       - run: make test-image
       - run: make image PLATFORM=linux/arm64 IMAGE=substrate-install:arm64
       - run: make test-image-registration
-      - run: make test-shim
       - run: make image-registration PLATFORM=linux/arm64 REGISTRATION_IMAGE=substrate-registration:arm64
 
   # Installs Substrate on a kind cluster, registers a sample actor and checks that it suspends

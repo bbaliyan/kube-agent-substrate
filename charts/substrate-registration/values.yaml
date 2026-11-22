@@ -5,7 +5,7 @@ snapshotStorageLocation: objectstore://substrate-snapshots
 actors: []
 
 substrate:
-  # The namespace of ate-api-server.
+  # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system
 
 image:

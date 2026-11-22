@@ -121,6 +121,18 @@ On nodes that enforce SELinux, `atelet` runs as `container_t` and cannot write `
 
 We recommend the stock confined type: set `selinux.type` to `container_engine_t` and `selinux.level` to a fixed level, for example `s0:c100,c200`. The level is required with any type other than `spc_t`. Without it, containerd gives each container of the pod its own MCS categories, and the object-store plugin cannot read the pod files. The chart fails the render if the level is missing. The node must label `/var/lib/ate` as `container_file_t` at level `s0` (see `docs/onprem-nodes.md`). Known limit: under `container_engine_t` the SELinux policy denies the `connectto` of `atelet` to the kubelet socket. The device plugin cannot register `ate.dev/kvm`, so the node offers none. The gVisor class needs no such resource. Keep `spc_t` as the fallback: it needs no node setup and no level.
 
+### Trust a private CA on the egress gateway
+
+The egress gateway ends the TLS of an actor and starts it again toward the real server. It checks the certificate of that server against one file. The file holds the public roots only. A GitLab or a model server behind a private CA fails with a 503 and `upstream_failure TLS_error` in the gateway log.
+
+To fix it, set `egress.trustedCaPem` to the PEM of the CA. It can hold more than one certificate. The chart then does three things:
+
+1. It makes a trust-manager `Bundle` named `egress-ca-bundle`. The bundle holds the default public roots and your CA. trust-manager writes it as a config map in the control plane namespace.
+2. It generates the patch `26-egress-trusted-ca`. The patch mounts that config map over the file that the gateway reads. The patch needs no host path and no `spc_t`, so the gateway pod keeps its normal SELinux type.
+3. It puts a hash of the PEM on the gateway pod. A change of the CA rolls the gateway, because a file mounted with `subPath` does not update in a running pod.
+
+The cluster needs trust-manager with its default CA package. With `egress.trustedCaPem` empty, nothing changes: the chart renders no Bundle and no patch. The patch fails the build if the first container of `atenet-egress` is not `envoy`. The chart holds no CA. The consumer passes the PEM as a value.
+
 ### microVMs are out
 
 The install uses the gVisor sandbox class only. The chart sets `sandboxClasses: gvisor` and a value cannot change it. A microVM class on a cluster that is not kind needs a cloud CLI to stage its assets, which the image does not hold. Use gVisor until this changes.
@@ -438,6 +450,7 @@ Each workaround, the upstream issue behind it and what to delete when the issue 
 | RustFS with large sparse multipart uploads. Verified on kind with RustFS 1.0.3: a 257 MiB snapshot (256 MiB of random data in the actor) uploaded as one object of 9 parts, and the actor resumed from it after a revert dropped the node-local copy. Not verified: the 64 to 128 MiB range of the issue, many uploads at once and a real disk | #3921 | The note, once a test covers the 64 to 128 MiB range and parallel uploads |
 | Stub of the GKE `PodMonitoring` CRD in the integration test, because the base manifests hold a `PodMonitoring` object and `ate-setup` stops without the CRD. A cluster without the GKE operator needs a stub or a patch that drops the object. The install chart has neither yet | #2589 | The stub, once the install no longer applies the object |
 | `--preview` in the registration Job, because the actor chart sets a snapshot location in every template and the server forbids it without the client flag | none known | The flag, once the actor chart leaves the location out |
+| Private CA for the egress gateway: the `egress.trustedCaPem` value, a trust-manager `Bundle` and the patch `26-egress-trusted-ca`, because the gateway checks upstream certificates against a fixed file of public roots and has no input for another CA | none known | The Bundle, the patch and the value, once upstream takes a trust bundle as an input |
 | Postgres sizing patch `30-postgres-sizing`: the chart sets the requests, limits and volume size of the bundled Postgres, because upstream hardcodes 2 CPU / 1 GiB requests, 16 CPU / 2 GiB limits and 500 Gi | #3167 (`--component`) plus #3168 (sizing contract) | The generated patch, the `patch-postgres` init container and the `postgres` values, once upstream offers both |
 
 ## License

@@ -1,0 +1,24 @@
+{{- if .Values.egress.trustedCaPem }}
+# trust-manager writes the config map into the control plane namespace: the default public roots plus the CA
+# of the consumer. The egress gateway mounts it (patch 26-egress-trusted-ca). The Bundle is cluster scoped.
+# The wave puts it before the Job, so the config map exists when the gateway pod starts.
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: {{ include "substrate-install.egressCaName" . }}
+  labels:
+    {{- include "substrate-install.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  sources:
+    - useDefaultCAs: true
+    - inLine: |
+        {{- .Values.egress.trustedCaPem | trim | nindent 8 }}
+  target:
+    configMap:
+      key: ca-certificates.crt
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Values.config.namespace }}
+{{- end }}

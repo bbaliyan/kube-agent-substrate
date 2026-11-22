@@ -77,6 +77,14 @@ selinux:
   type: spc_t
   level: ""
 
+# The egress gateway ends the TLS of an actor and starts it again toward the real server. It checks the
+# certificate of that server against one file, which holds the public roots only. A server behind a private
+# CA fails with a 503 (upstream_failure TLS_error). Set the PEM of that CA in trustedCaPem. A trust-manager
+# Bundle then makes a bundle of the default roots and your CA, and a patch mounts it over the file.
+# It needs trust-manager with its default CA package. Empty changes nothing.
+egress:
+  trustedCaPem: ""
+
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.
 env: []

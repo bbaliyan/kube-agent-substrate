@@ -1,0 +1,68 @@
+suite: substrate-install egress CA
+templates:
+  - templates/configmap.yaml
+  - templates/egress-ca-bundle.yaml
+values:
+  - ../ci/aws-values.yaml
+tests:
+  - it: renders no patch and no Bundle by default
+    asserts:
+      - notExists:
+          path: data["patch-26-egress-trusted-ca"]
+        template: templates/configmap.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/egress-ca-bundle.yaml
+
+  - it: makes a Bundle of the default roots and the CA
+    set:
+      egress.trustedCaPem: "TESTPEM"
+    template: templates/egress-ca-bundle.yaml
+    asserts:
+      - isKind:
+          of: Bundle
+      - equal:
+          path: spec.sources[0].useDefaultCAs
+          value: true
+      - matchRegex:
+          path: spec.sources[1].inLine
+          pattern: 'TESTPEM'
+      - equal:
+          path: spec.target.configMap.key
+          value: ca-certificates.crt
+      - equal:
+          path: spec.target.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: ate-system
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "-2"
+
+  - it: patches the egress gateway to mount the bundle over the file it reads, and guards the container
+    set:
+      egress.trustedCaPem: "TESTPEM"
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-26-egress-trusted-ca"]
+          pattern: 'name: atenet-egress[\s\S]*mountPath: /etc/ssl/certs/ca-certificates.crt[\s\S]*subPath: ca-certificates.crt'
+      - matchRegex:
+          path: data["patch-26-egress-trusted-ca"]
+          pattern: 'op: test[\s\S]*containers/0/name[\s\S]*value: envoy'
+      - matchRegex:
+          path: data["patch-26-egress-trusted-ca"]
+          pattern: 'name: egress-ca-bundle[\s\S]*name: egress-ca-bundle'
+      - notMatchRegex:
+          path: data["patch-26-egress-trusted-ca"]
+          pattern: 'hostPath|spc_t'
+      - matchRegex:
+          path: data["patch-26-egress-trusted-ca"]
+          pattern: 'egress-ca-sha256'
+
+  - it: puts a hash of the CA on the gateway pod, so a new CA rolls it
+    set:
+      egress.trustedCaPem: "one"
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["patch-26-egress-trusted-ca"]
+          pattern: 'egress-ca-sha256: 7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed'

@@ -150,6 +150,23 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "patch" (toYaml $merge)))) }}
 {{- end -}}
 
+{{- /* The egress CA patch: a Component that mounts the trust-manager bundle over the file the egress gateway reads to check upstream certificates. The pod annotation holds a hash of the PEM, so a change of the CA rolls the gateway: a file mounted with subPath does not update in a running pod. The test operation stops the install if upstream moves the envoy container. */ -}}
+{{- define "substrate-install.egressCaPatch" -}}
+{{- $target := dict "kind" "Deployment" "name" "atenet-egress" -}}
+{{- $guard := list (dict "op" "test" "path" "/spec/template/spec/containers/0/name" "value" "envoy") -}}
+{{- $merge := dict "apiVersion" "apps/v1" "kind" "Deployment" "metadata" (dict "name" "atenet-egress" "namespace" "ate-system") "spec" (dict "template" (dict
+    "metadata" (dict "annotations" (dict "substrate-install/egress-ca-sha256" (.Values.egress.trustedCaPem | sha256sum)))
+    "spec" (dict
+      "volumes" (list (dict "name" "egress-ca-bundle" "configMap" (dict "name" (include "substrate-install.egressCaName" .) "items" (list (dict "key" "ca-certificates.crt" "path" "ca-certificates.crt")))))
+      "containers" (list (dict "name" "envoy" "volumeMounts" (list (dict "name" "egress-ca-bundle" "mountPath" "/etc/ssl/certs/ca-certificates.crt" "subPath" "ca-certificates.crt" "readOnly" true))))))) -}}
+# Generated from the egress values. Do not edit.
+# Workaround: the egress gateway trusts the public roots only, and has no input for a private CA.
+{{ toYaml (dict "apiVersion" "kustomize.config.k8s.io/v1alpha1" "kind" "Component" "patches" (list (dict "target" $target "patch" (toYaml $guard)) (dict "patch" (toYaml $merge)))) }}
+{{- end -}}
+
+{{- /* The name of the Bundle and of the config map that trust-manager makes from it. */ -}}
+{{- define "substrate-install.egressCaName" -}}egress-ca-bundle{{- end -}}
+
 {{- /* Every patch Component by directory name: the files in patches/ and the generated ones. */ -}}
 {{- define "substrate-install.patchFiles" -}}
 {{- $files := dict -}}
@@ -160,6 +177,9 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{- $_ = set $files "30-postgres-sizing" (include "substrate-install.postgresPatch" .) -}}
 {{- if .Values.selinux.enabled -}}
 {{- $_ = set $files "25-atelet-selinux" (include "substrate-install.seLinuxPatch" .) -}}
+{{- end -}}
+{{- if .Values.egress.trustedCaPem -}}
+{{- $_ = set $files "26-egress-trusted-ca" (include "substrate-install.egressCaPatch" .) -}}
 {{- end -}}
 {{- toJson $files -}}
 {{- end -}}

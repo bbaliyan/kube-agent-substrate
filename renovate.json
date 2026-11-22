@@ -24,17 +24,6 @@
     },
     {
       "customType": "regex",
-      "description": "Pins in ARG lines that follow a renovate comment in the Dockerfiles",
-      "managerFilePatterns": [
-        "/^images/.+/Dockerfile$/",
-        "/^tests/integration/counter/Dockerfile$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\nARG \\w+=(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
-      ]
-    },
-    {
-      "customType": "regex",
       "description": "Image pins that follow a renovate comment in the integration test files",
       "managerFilePatterns": [
         "/^tests/integration/.+\\.yaml$/"

@@ -33,6 +33,13 @@ docker run --rm --user 0 --entrypoint sh -v "$build:/in:ro" "$image" -euc '
   egress=/work/manifests/ate-install/atenet-egress.yaml
 
   setup
+  count() { grep -c -- "$1" "$egress" || true; }
+  kinds_before=$(count "^kind:")
+  filter_before=$(count "^ *#ATE_MITM_EXTPROC_FILTER")
+  cluster_before=$(count "^ *#ATE_MITM_EXTPROC_CLUSTER")
+  image_before=$(grep -cF "\${ENVOY_DATAPLANE_IMAGE}" "$egress" || true)
+  envoy_before=$(grep -cF "  envoy.yaml: |" "$egress" || true)
+  test "$filter_before" -eq 2 && test "$cluster_before" -eq 1 && test "$image_before" -eq 1 && test "$envoy_before" -eq 1
   flag_indent=$(grep -- "--envoy-admin-address" "$egress" | head -1 | sed "s/-.*//" | tr -d "\n" | wc -c)
   sh -ec "$(cat /in/step.sh)"
   test "$(grep -c "^ *#ATE_EGRESS_INJECT_FLAGS" "$egress")" -eq 1
@@ -41,16 +48,25 @@ docker run --rm --user 0 --entrypoint sh -v "$build:/in:ro" "$image" -euc '
   test "$(grep -c "mountPath: /etc/ssl/certs/ca-certificates.crt" "$egress")" -eq 1
   test "$(grep -c "name: egress-ca-bundle" "$egress")" -eq 3
   test "$(grep -c "egress-ca-sha256:" "$egress")" -eq 1
-  test "$(grep -c "^kind:" "$egress")" -eq 4
-  echo "patch-egress: the marker stays once at the indent of the flags, the bundle is mounted, all 4 documents remain"
+  test "$(count "^kind:")" -eq "$kinds_before"
+  test "$(count "^ *#ATE_MITM_EXTPROC_FILTER")" -eq "$filter_before"
+  test "$(count "^ *#ATE_MITM_EXTPROC_CLUSTER")" -eq "$cluster_before"
+  test "$(grep -cF "\${ENVOY_DATAPLANE_IMAGE}" "$egress" || true)" -eq "$image_before"
+  test "$(grep -cF "  envoy.yaml: |" "$egress" || true)" -eq "$envoy_before"
+  echo "patch-egress: the credential marker stays once at the indent of the flags, the bundle is mounted, and every marker and placeholder that ate-setup replaces later is still there"
 
   setup
   sed -i "s|/etc/ssl/certs/ca-certificates.crt|/etc/ssl/certs/other.crt|" "$egress"
-  if sh -ec "$(cat /in/step.sh)" 2>/dev/null; then echo "the step passed although the manifest no longer reads the CA file"; exit 1; fi
-  echo "patch-egress: fails when the manifest stops reading the CA file, as it must"
+  cp "$egress" /tmp/before.yaml
+  if err=$(sh -ec "$(cat /in/step.sh)" 2>&1); then echo "the step passed although the manifest no longer reads the CA file"; exit 1; fi
+  case "$err" in *"no longer reads"*) ;; *) echo "the step failed for another reason: $err"; exit 1;; esac
+  cmp -s "$egress" /tmp/before.yaml || { echo "the failed step changed the manifest"; exit 1; }
+  echo "patch-egress: fails with its message when the manifest stops reading the CA file, and leaves the manifest alone"
 
   setup
   sed -i "/#ATE_EGRESS_INJECT_FLAGS/d" "$egress"
-  if sh -ec "$(cat /in/step.sh)" 2>/dev/null; then echo "the step passed although the marker is missing"; exit 1; fi
-  echo "patch-egress: fails when the credential flag marker is missing, as it must"
+  cp "$egress" /tmp/before.yaml
+  if sh -ec "$(cat /in/step.sh)" >/dev/null 2>&1; then echo "the step passed although the marker is missing"; exit 1; fi
+  cmp -s "$egress" /tmp/before.yaml || { echo "the failed step changed the manifest"; exit 1; }
+  echo "patch-egress: fails when the credential flag marker is missing, and leaves the manifest alone"
 '

@@ -36,7 +36,7 @@ selinux:
 # Prometheus Operator objects. Off by default: a cluster without the operator installs with it off.
 observability:
   enabled: false
-  # The namespace of the control plane pods that the PodMonitors select.
+  # The namespace of the control plane pods that the PodMonitors select. Must be ate-system: upstream installs there only.
   controlPlaneNamespace: ate-system
   # Labels that your Prometheus needs to select a PodMonitor, for example `release: prometheus`.
   podMonitorLabels: {}

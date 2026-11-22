@@ -7,7 +7,7 @@ actors: []
 substrate:
   # The release of the control plane. The registration image is tagged with the same version.
   version: v1.0.0
-  # The namespace of ate-api-server.
+  # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system
 
 image:

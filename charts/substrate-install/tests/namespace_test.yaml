@@ -1,0 +1,63 @@
+suite: substrate-install control plane namespace
+templates:
+  - templates/namespace.yaml
+  - templates/configmap.yaml
+tests:
+  - it: renders the namespace with the privileged Pod Security level by default, because the control plane pods run as root and mount host paths
+    values:
+      - ../ci/aws-values.yaml
+    template: templates/namespace.yaml
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: ate-system
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: renders no namespace when you create it yourself
+    values:
+      - ../ci/aws-values.yaml
+    set:
+      createNamespace: false
+    template: templates/namespace.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the same namespace when an ExternalSecret needs it first
+    values:
+      - ../ci/onprem-values.yaml
+    set:
+      storage.s3Compatible.credentials:
+        secretName: ""
+        externalSecret:
+          enabled: true
+          storeName: store
+          accessKeyRemoteKey: a
+          secretKeyRemoteKey: b
+    template: templates/namespace.yaml
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: ate-system
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+
+  - it: refuses a namespace other than ate-system, because upstream installs there only
+    values:
+      - ../ci/aws-values.yaml
+    set:
+      config.namespace: my-system
+    template: templates/configmap.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "namespace"

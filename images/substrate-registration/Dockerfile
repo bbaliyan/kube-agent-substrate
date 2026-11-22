@@ -10,9 +10,7 @@
 # The build stage runs on the build platform and cross-compiles, so a build for
 # arm64 needs no emulation.
 
-# renovate: datasource=docker depName=golang
 ARG GO_IMAGE=golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0
-# renovate: datasource=docker depName=debian
 ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build

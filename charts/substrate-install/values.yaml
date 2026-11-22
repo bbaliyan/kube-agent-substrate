@@ -2,7 +2,7 @@ substrate:
   # The release to install. The install image carries the checkout of this tag.
   # Change it together with image.digest. The image is pulled by digest.
   # renovate: datasource=github-tags depName=agent-substrate/substrate
-  version: v1.0.0
+  version: v1.0.1
   # Holds every control plane image the release publishes.
   imageRepository: ghcr.io/agent-substrate/substrate
 
@@ -51,7 +51,7 @@ storage:
         accessKeyRemoteKey: ""
         secretKeyRemoteKey: ""
 
-# The bundled control plane Postgres. Upstream v1.0.0 hardcodes these numbers
+# The bundled control plane Postgres. Upstream v1.0.1 hardcodes these numbers
 # in manifests/ate-install/postgres/postgres.yaml, and the chart patches them
 # before the deploy (see the README). The defaults are the upstream numbers.
 postgres:

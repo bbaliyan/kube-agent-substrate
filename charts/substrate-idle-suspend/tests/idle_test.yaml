@@ -234,7 +234,7 @@ tests:
   - it: rejects substrate.version, which the digest-only image reference replaced
     template: templates/cronjob.yaml
     set:
-      substrate.version: v1.0.0
+      substrate.version: v1.0.1
     asserts:
       - failedTemplate:
           errorPattern: "version"

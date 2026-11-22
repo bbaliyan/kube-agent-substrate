@@ -18,8 +18,8 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
-ARG SUBSTRATE_TAG=v1.0.0
-ARG SUBSTRATE_COMMIT=b34fbee742906494b5eb4f1f36987176bf8770a4
+ARG SUBSTRATE_TAG=v1.0.1
+ARG SUBSTRATE_COMMIT=20778a6dbb01f13024642851bb592bf67c9fec05
 ARG JQ_VERSION=jq-1.8.2
 ARG JQ_SHA256_AMD64=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
 ARG JQ_SHA256_ARM64=8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309
@@ -65,7 +65,7 @@ RUN set -eu; \
 
 FROM ${RUNTIME_IMAGE}
 # renovate: datasource=github-tags depName=agent-substrate/substrate
-ARG SUBSTRATE_TAG=v1.0.0
+ARG SUBSTRATE_TAG=v1.0.1
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Registers actors in Agent Substrate ${SUBSTRATE_TAG}" \
       org.opencontainers.image.licenses="Apache-2.0"

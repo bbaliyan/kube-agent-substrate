@@ -1,6 +1,6 @@
 # kube-agent-substrate
 
-Helm charts that install the [Agent Substrate](https://github.com/agent-substrate/substrate) v1.0.0 control plane on a Kubernetes cluster and run actors on it. An actor is a sandboxed process that Substrate can suspend to a snapshot and resume later.
+Helm charts that install the [Agent Substrate](https://github.com/agent-substrate/substrate) v1.0.1 control plane on a Kubernetes cluster and run actors on it. An actor is a sandboxed process that Substrate can suspend to a snapshot and resume later.
 
 ## Charts
 
@@ -90,7 +90,7 @@ The `substrate-actor` and `substrate-registration` releases must be in the same 
 
 ## Install the control plane
 
-The `substrate-install` chart runs one Job that installs the release in `substrate.version` (default `v1.0.0`).
+The `substrate-install` chart runs one Job that installs the release in `substrate.version` (default `v1.0.1`).
 
 ### Values that matter
 
@@ -225,7 +225,7 @@ The `substrate-workers` chart renders one WorkerPool in the release namespace. T
 | `pool.name` | the release name | Name of the WorkerPool. The worker pods carry the label `ate.dev/worker-pool=<name>`. |
 | `pool.labels` | `{}` | Labels of the WorkerPool. The `workerSelector` of an actor matches them. |
 | `pool.nodeSelector`, `pool.tolerations` | `{}`, `[]` | Where the worker pods run |
-| `image.tag`, `image.digest` | `v1.0.0` and its digest | The `ateworker-gvisor` image of the release |
+| `image.tag`, `image.digest` | `v1.0.1` and its digest | The `ateworker-gvisor` image of the release |
 | `workers.replicas` | `2` | Number of worker pods |
 | `workers.cpu`, `workers.memory` | `"1"`, `2Gi` | Request and limit of each worker pod |
 | `sandboxClass` | `gvisor` | The only value that the schema accepts |
@@ -449,7 +449,7 @@ Renovate does not change the worker image of `substrate-workers`. That image is 
 3. Set `image.digest` of the install and registration images to an image built for that release.
 4. Run `helm upgrade` for each chart, in the order of the quick start.
 
-The inputs of the install Job change, so a new Job runs. Do not change `postgres.storage` on an installed cluster. This procedure is not verified: v1.0.0 is the only release that the charts support today.
+The inputs of the install Job change, so a new Job runs. Do not change `postgres.storage` on an installed cluster. This procedure is not verified: the upgrade from v1.0.0 to v1.0.1 has not run on a cluster.
 
 ## Checks
 

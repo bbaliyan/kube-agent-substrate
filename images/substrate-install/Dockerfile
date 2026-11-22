@@ -3,7 +3,7 @@
 #
 # To change the Substrate version, set SUBSTRATE_TAG and the
 # SUBSTRATE_COMMIT together. The build fails if the tag no longer names the
-# commit. Renovate tracks every other pin; it cannot track SUBSTRATE_COMMIT.
+# commit. Renovate updates both in one pull request (renovate.json).
 #
 # The build stage runs on the build platform and cross-compiles, so a build for
 # arm64 needs no emulation.
@@ -16,7 +16,6 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
-# renovate: datasource=github-releases depName=agent-substrate/substrate
 ARG SUBSTRATE_TAG=v1.0.0
 ARG SUBSTRATE_COMMIT=b34fbee742906494b5eb4f1f36987176bf8770a4
 # renovate: datasource=go depName=sigs.k8s.io/kustomize/kustomize/v5
@@ -40,7 +39,7 @@ RUN go mod init kustomize-build \
 RUN mkdir -p /out/substrate && cp -a /src/manifests /src/go.mod /out/substrate/
 
 FROM ${RUNTIME_IMAGE}
-# renovate: datasource=github-releases depName=agent-substrate/substrate
+# renovate: datasource=github-tags depName=agent-substrate/substrate
 ARG SUBSTRATE_TAG=v1.0.0
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Installs Agent Substrate ${SUBSTRATE_TAG}" \

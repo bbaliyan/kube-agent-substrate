@@ -11,6 +11,19 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "The Substrate release that an image builds: the tag and the commit that it names, which Renovate updates together",
+      "managerFilePatterns": [
+        "/^images/substrate-(install|registration)/Dockerfile$/",
+        "/^tests/integration/counter/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG SUBSTRATE_TAG=(?<currentValue>v[^\\s]+)\\nARG SUBSTRATE_COMMIT=(?<currentDigest>[a-f0-9]{40})"
+      ],
+      "datasourceTemplate": "github-tags",
+      "depNameTemplate": "agent-substrate/substrate"
+    },
+    {
+      "customType": "regex",
       "description": "Pins in ARG lines that follow a renovate comment in the Dockerfiles",
       "managerFilePatterns": [
         "/^images/.+/Dockerfile$/",
@@ -28,6 +41,24 @@
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\n\\s*(?:image|\\w+Image): \\S+?:(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "A Substrate release is its own pull request and is never merged by Renovate: read the release notes and the result of the patch checks first. It updates the tag and commit of both images, substrate.version and the chart appVersion together.",
+      "matchDepNames": [
+        "agent-substrate/substrate"
+      ],
+      "groupName": "substrate release",
+      "groupSlug": "substrate-release",
+      "automerge": false,
+      "labels": [
+        "renovate",
+        "upstream-release"
+      ],
+      "prBodyNotes": [
+        "After the merge: publish the install and registration images, set their digests in the consumers, and read the release notes for changes to the patched manifests (see the README, section Upgrade)."
       ]
     }
   ]

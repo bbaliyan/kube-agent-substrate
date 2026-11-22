@@ -2,7 +2,7 @@
 # kubectl-ate, jq, curl and bash. Nothing is downloaded when a container starts.
 #
 # To change the Substrate version, set SUBSTRATE_TAG and SUBSTRATE_COMMIT together.
-# The build fails if the tag no longer names the commit.
+# The build fails if the tag no longer names the commit. Renovate updates both in one pull request (renovate.json).
 # To change jq or curl, set the version and both checksums together. The build
 # fails on a mismatch. Renovate cannot update the checksums, so these pins have no
 # renovate comment. Take the checksums from the sha256sum.txt of the jq release.
@@ -18,7 +18,6 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
-# renovate: datasource=github-releases depName=agent-substrate/substrate
 ARG SUBSTRATE_TAG=v1.0.0
 ARG SUBSTRATE_COMMIT=b34fbee742906494b5eb4f1f36987176bf8770a4
 ARG JQ_VERSION=jq-1.8.2
@@ -65,7 +64,7 @@ RUN set -eu; \
     chmod +x /out/curl
 
 FROM ${RUNTIME_IMAGE}
-# renovate: datasource=github-releases depName=agent-substrate/substrate
+# renovate: datasource=github-tags depName=agent-substrate/substrate
 ARG SUBSTRATE_TAG=v1.0.0
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Registers actors in Agent Substrate ${SUBSTRATE_TAG}" \

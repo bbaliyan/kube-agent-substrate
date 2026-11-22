@@ -426,6 +426,24 @@ The images build `ate-setup` and `kubectl-ate` from the release tag and verify t
 
 ## Upgrade
 
+### Take a new Substrate release
+
+When upstream publishes a release, Renovate opens one pull request named `substrate release`, with the label `upstream-release`. Renovate never merges it. The pull request changes these together:
+
+- `SUBSTRATE_TAG` and `SUBSTRATE_COMMIT` in the install and the registration Dockerfile.
+- `substrate.version` of `substrate-install`.
+- `appVersion` of the three charts that have one.
+
+Renovate does not change the worker image of `substrate-workers`. That image is a value that you set.
+
+1. Read the release notes of the new release.
+2. Wait for the CI jobs `image` and `integration`. The `image` job applies every patch to the manifests of the new release. A patch fails the build if upstream moved what it patches.
+3. Merge the pull request.
+4. After the `publish` job pushes the new images, read their digests (see [Images](#images)).
+5. Follow the steps below to move a cluster to the new release.
+
+### Move a cluster to a release
+
 1. Set `substrate.version` in `substrate-install` to the new release.
 2. Set `image.tag` and `image.digest` in `substrate-workers` to the worker image of the new release.
 3. Set `image.digest` of the install and registration images to an image built for that release.

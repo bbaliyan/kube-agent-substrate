@@ -449,7 +449,7 @@ Renovate does not change the worker image of `substrate-workers`. That image is 
 3. Set `image.digest` of the install and registration images to an image built for that release.
 4. Run `helm upgrade` for each chart, in the order of the quick start.
 
-The inputs of the install Job change, so a new Job runs. Do not change `postgres.storage` on an installed cluster. This procedure is not verified: the upgrade from v1.0.0 to v1.0.1 has not run on a cluster.
+The inputs of the install Job change, so a new Job runs. Do not change `postgres.storage` on an installed cluster.
 
 ## Checks
 

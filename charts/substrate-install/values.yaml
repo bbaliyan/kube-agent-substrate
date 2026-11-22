@@ -1,6 +1,6 @@
 substrate:
-  # The release to install. The install image is tagged with the same version
-  # and carries the checkout of that tag. Change both together.
+  # The release to install. The install image carries the checkout of this tag.
+  # Change it together with image.digest. The image is pulled by digest.
   version: v1.0.0
   # Holds every control plane image the release publishes.
   imageRepository: ghcr.io/agent-substrate/substrate

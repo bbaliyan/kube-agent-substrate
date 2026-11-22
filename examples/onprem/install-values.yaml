@@ -1,4 +1,4 @@
-# substrate-install values for a small self-managed cluster (Proxmox VMs, RKE2, AlmaLinux).
+# substrate-install values for a small self-managed cluster with SELinux nodes.
 # Snapshots go to RustFS, an S3-compatible store that runs in the same cluster.
 # Copy the file. Replace every value that says "example" or "placeholder".
 #
@@ -7,7 +7,7 @@
 #   - Create the namespace ate-system with the label pod-security.kubernetes.io/enforce=privileged.
 #   - Create the Secret "snapshot-store-keys" in ate-system with the keys
 #     access-key-id and secret-access-key. Use the same keys as RustFS.
-# See docs/onprem-nodes.md for the node requirements.
+# See docs/cluster-requirements.md for the cluster requirements.
 image:
   # Placeholder. Set the digest of a published install image.
   digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

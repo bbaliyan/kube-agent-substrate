@@ -1,6 +1,7 @@
 substrate:
   # The release to install. The install image carries the checkout of this tag.
   # Change it together with image.digest. The image is pulled by digest.
+  # renovate: datasource=github-tags depName=agent-substrate/substrate
   version: v1.0.0
   # Holds every control plane image the release publishes.
   imageRepository: ghcr.io/agent-substrate/substrate

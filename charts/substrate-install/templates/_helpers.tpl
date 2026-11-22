@@ -155,7 +155,7 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{- $target := dict "kind" "Deployment" "name" "atenet-egress" -}}
 {{- $guard := list (dict "op" "test" "path" "/spec/template/spec/containers/0/name" "value" "envoy") -}}
 {{- $merge := dict "apiVersion" "apps/v1" "kind" "Deployment" "metadata" (dict "name" "atenet-egress" "namespace" "ate-system") "spec" (dict "template" (dict
-    "metadata" (dict "annotations" (dict "substrate-install/egress-ca-sha256" (.Values.egress.trustedCaPem | sha256sum)))
+    "metadata" (dict "annotations" (dict "substrate-install/egress-ca-sha256" (.Values.egress.trustedCaPem | trim | sha256sum)))
     "spec" (dict
       "volumes" (list (dict "name" "egress-ca-bundle" "configMap" (dict "name" (include "substrate-install.egressCaName" .) "items" (list (dict "key" "ca-certificates.crt" "path" "ca-certificates.crt")))))
       "containers" (list (dict "name" "envoy" "volumeMounts" (list (dict "name" "egress-ca-bundle" "mountPath" "/etc/ssl/certs/ca-certificates.crt" "subPath" "ca-certificates.crt" "readOnly" true))))))) -}}
@@ -178,7 +178,7 @@ current-context: {{ include "substrate-install.contextName" . }}
 {{- if .Values.selinux.enabled -}}
 {{- $_ = set $files "25-atelet-selinux" (include "substrate-install.seLinuxPatch" .) -}}
 {{- end -}}
-{{- if .Values.egress.trustedCaPem -}}
+{{- if (trim .Values.egress.trustedCaPem) -}}
 {{- $_ = set $files "26-egress-trusted-ca" (include "substrate-install.egressCaPatch" .) -}}
 {{- end -}}
 {{- toJson $files -}}
@@ -199,9 +199,19 @@ components:
   - ../patches/30-postgres-sizing
 {{- end -}}
 
-{{- /* The patches for the base kustomization. The Postgres patch is not one of them: base holds no Postgres. */ -}}
+{{- /* The kustomization that applies the egress CA patch to the egress manifest. The Job builds it over a copy of that manifest (see the job). */ -}}
+{{- define "substrate-install.egressBuild" -}}
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../egress-input.yaml
+components:
+  - ../patches/26-egress-trusted-ca
+{{- end -}}
+
+{{- /* The patches for the base kustomization. The Postgres patch and the egress CA patch are not among them: base holds neither manifest, and the Job builds each one on its own. */ -}}
 {{- define "substrate-install.basePatchNames" -}}
-{{- toJson (without (include "substrate-install.patchNames" . | fromJsonArray) "30-postgres-sizing") -}}
+{{- toJson (without (include "substrate-install.patchNames" . | fromJsonArray) "30-postgres-sizing" "26-egress-trusted-ca") -}}
 {{- end -}}
 
 {{- /* Everything the Job reads from the config map, as JSON. */ -}}
@@ -209,6 +219,9 @@ components:
 {{- $data := dict "substrate-install.yaml" (include "substrate-install.document" .) "kubeconfig" (include "substrate-install.kubeconfig" .) "pg-build" (include "substrate-install.postgresBuild" .) -}}
 {{- range $name, $content := include "substrate-install.patchFiles" . | fromJson -}}
 {{- $_ := set $data (printf "patch-%s" $name) $content -}}
+{{- end -}}
+{{- if (trim .Values.egress.trustedCaPem) -}}
+{{- $_ := set $data "egress-build" (include "substrate-install.egressBuild" .) -}}
 {{- end -}}
 {{- toJson $data -}}
 {{- end -}}

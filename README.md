@@ -128,10 +128,10 @@ The egress gateway ends the TLS of an actor and starts it again toward the real 
 To fix it, set `egress.trustedCaPem` to the PEM of the CA. It can hold more than one certificate. The chart then does three things:
 
 1. It makes a trust-manager `Bundle` named `egress-ca-bundle`. The bundle holds the default public roots and your CA. trust-manager writes it as a config map in the control plane namespace.
-2. It generates the patch `26-egress-trusted-ca`. The patch mounts that config map over the file that the gateway reads. The patch needs no host path and no `spc_t`, so the gateway pod keeps its normal SELinux type.
+2. It generates the patch `26-egress-trusted-ca`. The patch mounts that config map over the file that the gateway reads. The patch needs no host path and no `spc_t`, so the gateway pod keeps its normal SELinux type. `ate-setup` applies `atenet-egress.yaml` on its own, so the base kustomization does not hold it. The Job step `patch-egress` builds the manifest with the patch and writes it back, like the Postgres step. kustomize drops comments, so the step keeps the marker comment of the credential flags as a list item during the build, and checks that it comes out once.
 3. It puts a hash of the PEM on the gateway pod. A change of the CA rolls the gateway, because a file mounted with `subPath` does not update in a running pod.
 
-The cluster needs trust-manager with its default CA package. With `egress.trustedCaPem` empty, nothing changes: the chart renders no Bundle and no patch. The patch fails the build if the first container of `atenet-egress` is not `envoy`. The chart holds no CA. The consumer passes the PEM as a value.
+The cluster needs trust-manager with its default CA package. With `egress.trustedCaPem` empty, nothing changes: the chart renders no Bundle and no patch. The patch fails the build if the first container of `atenet-egress` is not `envoy`, and the step fails if the manifest no longer reads `/etc/ssl/certs/ca-certificates.crt`. A value with only spaces counts as empty. A value with no certificate in it is refused. The chart holds no CA. The consumer passes the PEM as a value.
 
 ### microVMs are out
 

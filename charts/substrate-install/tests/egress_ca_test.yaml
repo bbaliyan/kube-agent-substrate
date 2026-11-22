@@ -2,10 +2,29 @@ suite: substrate-install egress CA
 templates:
   - templates/configmap.yaml
   - templates/egress-ca-bundle.yaml
+  - templates/job.yaml
 values:
   - ../ci/aws-values.yaml
 tests:
-  - it: renders no patch and no Bundle by default
+  - it: renders no patch, no Bundle and no build step by default
+    asserts:
+      - notExists:
+          path: data["patch-26-egress-trusted-ca"]
+        template: templates/configmap.yaml
+      - notExists:
+          path: data["egress-build"]
+        template: templates/configmap.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/egress-ca-bundle.yaml
+      - lengthEqual:
+          path: spec.template.spec.initContainers
+          count: 3
+        template: templates/job.yaml
+
+  - it: treats a value of only whitespace as no CA
+    set:
+      egress.trustedCaPem: "   "
     asserts:
       - notExists:
           path: data["patch-26-egress-trusted-ca"]
@@ -14,9 +33,16 @@ tests:
           count: 0
         template: templates/egress-ca-bundle.yaml
 
+  - it: refuses a value that holds no certificate
+    set:
+      egress.trustedCaPem: "not a certificate"
+    template: templates/configmap.yaml
+    asserts:
+      - failedTemplate: {}
+
   - it: makes a Bundle of the default roots and the CA
     set:
-      egress.trustedCaPem: "TESTPEM"
+      egress.trustedCaPem: "-----BEGIN CERTIFICATE-----TESTPEM"
     template: templates/egress-ca-bundle.yaml
     asserts:
       - isKind:
@@ -39,7 +65,7 @@ tests:
 
   - it: patches the egress gateway to mount the bundle over the file it reads, and guards the container
     set:
-      egress.trustedCaPem: "TESTPEM"
+      egress.trustedCaPem: "-----BEGIN CERTIFICATE-----TESTPEM"
     template: templates/configmap.yaml
     asserts:
       - matchRegex:
@@ -48,21 +74,36 @@ tests:
       - matchRegex:
           path: data["patch-26-egress-trusted-ca"]
           pattern: 'op: test[\s\S]*containers/0/name[\s\S]*value: envoy'
-      - matchRegex:
-          path: data["patch-26-egress-trusted-ca"]
-          pattern: 'name: egress-ca-bundle[\s\S]*name: egress-ca-bundle'
       - notMatchRegex:
           path: data["patch-26-egress-trusted-ca"]
           pattern: 'hostPath|spc_t'
       - matchRegex:
           path: data["patch-26-egress-trusted-ca"]
-          pattern: 'egress-ca-sha256'
+          pattern: 'egress-ca-sha256: 39a9117999f7a018c4c7df24168c3ec4e7ccc06b3c667103b197c5d91ceb732d'
 
-  - it: puts a hash of the CA on the gateway pod, so a new CA rolls it
+  - it: builds the egress manifest on its own, because the base kustomization does not hold it
     set:
-      egress.trustedCaPem: "one"
-    template: templates/configmap.yaml
+      egress.trustedCaPem: "-----BEGIN CERTIFICATE-----TESTPEM"
     asserts:
       - matchRegex:
-          path: data["patch-26-egress-trusted-ca"]
-          pattern: 'egress-ca-sha256: 7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed'
+          path: data["egress-build"]
+          pattern: 'egress-input.yaml[\s\S]*patches/26-egress-trusted-ca'
+        template: templates/configmap.yaml
+      - equal:
+          path: spec.template.spec.initContainers[1].command
+          value:
+            - kustomize
+            - edit
+            - add
+            - component
+            - ../patches/10-atelet-no-credential-provider
+            - ../patches/20-storage-profile
+        template: templates/job.yaml
+      - equal:
+          path: spec.template.spec.initContainers[3].name
+          value: patch-egress
+        template: templates/job.yaml
+      - matchRegex:
+          path: spec.template.spec.initContainers[3].command[2]
+          pattern: 'ATE_EGRESS_INJECT_FLAGS[\s\S]*kustomize build[\s\S]*ATE_EGRESS_INJECT_FLAGS'
+        template: templates/job.yaml

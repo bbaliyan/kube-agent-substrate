@@ -1,4 +1,4 @@
-{{- if .Values.egress.trustedCaPem }}
+{{- if (trim .Values.egress.trustedCaPem) }}
 # trust-manager writes the config map into the control plane namespace: the default public roots plus the CA
 # of the consumer. The egress gateway mounts it (patch 26-egress-trusted-ca). The Bundle is cluster scoped.
 # The wave puts it before the Job, so the config map exists when the gateway pod starts.

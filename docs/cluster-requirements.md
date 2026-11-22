@@ -58,9 +58,11 @@ The bundled Postgres asks for a `ReadWriteOnce` volume from the default StorageC
 
 `atelet` mounts the host directories `/dev`, `/var/lib/ate` and the kubelet plugin directories. The worker pods mount a host path volume too. The Baseline level blocks host path volumes and the SELinux type `spc_t`, so the namespaces need the `privileged` level.
 
-1. Create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`.
+The `substrate-install` chart creates `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged` (`createNamespace: true`). No chart creates the worker pool namespaces.
+
+1. If you create `ate-system` yourself, add the label `pod-security.kubernetes.io/enforce=privileged` and set `createNamespace: false`.
 2. Create the namespace of each worker pool with the same label.
-3. Run `kubectl get ns ate-system -o jsonpath='{.metadata.labels}'`.
+3. After the install, run `kubectl get ns ate-system -o jsonpath='{.metadata.labels}'`.
 4. Verify that the output holds the label.
 5. If the cluster has an admission configuration that enforces the restricted level by default, verify that it exempts these namespaces.
 

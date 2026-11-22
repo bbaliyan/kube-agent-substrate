@@ -36,7 +36,7 @@ Not verified: an install on Amazon EKS or any AWS cluster, Google GKE, Azure AKS
 - Kubernetes 1.36 or later. Only 1.37 was verified.
 - The Pod Certificate and ClusterTrustBundle APIs.
 - A default StorageClass for the bundled Postgres, or a class in `config.ateapi.postgres.storageClass` of `substrate-install`.
-- The `privileged` Pod Security level on the control plane namespace `ate-system` and on each worker pool namespace.
+- The `privileged` Pod Security level on the control plane namespace `ate-system` and on each worker pool namespace. The install chart creates `ate-system` with this level by default. You must create each worker pool namespace.
 - The stub of the GKE `PodMonitoring` CRD, on any cluster without the GKE operator. Use `examples/onprem/podmonitoring-crd.yaml`.
 - An S3 bucket, or a bucket in an S3-compatible store.
 - One CPU model for each worker pool (see [One CPU model for each pool](#one-cpu-model-for-each-pool)).
@@ -66,22 +66,25 @@ config:
 
 `ate-setup` needs `credentialProvider`, and the registration Job needs the other two (see [Register actors](#register-actors)).
 
+The install chart creates the control plane namespace `ate-system` with the `privileged` Pod Security level (`createNamespace: true`). The S3 keys of an existing Secret must be in `ate-system` before the install. In that case, you create the namespace yourself and set `createNamespace: false`, as `examples/onprem/install-values.yaml` does. Helm cannot adopt a namespace that already exists, so an install with `createNamespace: true` into an existing `ate-system` fails. Argo CD can adopt it.
+
 1. Verify the requirements with [docs/cluster-requirements.md](docs/cluster-requirements.md).
 2. Run `kubectl apply -f examples/onprem/podmonitoring-crd.yaml`.
-3. Create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`. Skip this step if you use `credentials.externalSecret`, because the chart then renders the namespace.
-4. Create the snapshot bucket.
-5. If you use the `s3-compatible` profile with an existing Secret, create the Secret in `ate-system`.
-6. Set `image.digest` in the install values (see [Images](#images)).
-7. Run `helm upgrade --install substrate-install charts/substrate-install -n substrate-system --create-namespace -f install-values.yaml --wait --wait-for-jobs --timeout 20m`.
-8. Label the worker nodes so that they match `pool.nodeSelector`. For the example, run `kubectl label node <node> worker-cpu-model=fixed`.
-9. Create the worker pool namespace with the `privileged` label.
-10. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml --set workers.replicas=0`.
-11. Wait a few seconds, so that the SELinux admission policy is active.
-12. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml`.
-13. Run `helm upgrade --install substrate-actor charts/substrate-actor -n substrate-system -f actors-values.yaml`.
-14. Run `helm upgrade --install substrate-registration charts/substrate-registration -n substrate-system -f actors-values.yaml --set image.digest=<digest> --wait --wait-for-jobs --timeout 15m`.
+3. Create the snapshot bucket.
+4. If the S3 keys come from an existing Secret, create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`.
+5. If the S3 keys come from an existing Secret, create the Secret in `ate-system`.
+6. If you did step 4, set `createNamespace: false` in the install values.
+7. Set `image.digest` in the install values (see [Images](#images)).
+8. Run `helm upgrade --install substrate-install charts/substrate-install -n substrate-system --create-namespace -f install-values.yaml --wait --wait-for-jobs --timeout 20m`.
+9. Label the worker nodes so that they match `pool.nodeSelector`. For the example, run `kubectl label node <node> worker-cpu-model=fixed`.
+10. Create the worker pool namespace with the label `pod-security.kubernetes.io/enforce=privileged`.
+11. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml --set workers.replicas=0`.
+12. Wait a few seconds, so that the SELinux admission policy is active.
+13. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml`.
+14. Run `helm upgrade --install substrate-actor charts/substrate-actor -n substrate-system -f actors-values.yaml`.
+15. Run `helm upgrade --install substrate-registration charts/substrate-registration -n substrate-system -f actors-values.yaml --set image.digest=<digest> --wait --wait-for-jobs --timeout 15m`.
 
-If SELinux is off in the workers values, you can skip steps 10 and 11.
+If SELinux is off in the workers values, you can skip steps 11 and 12. With the `aws` profile or an ExternalSecret, skip steps 4 to 6 and keep `createNamespace: true`. The chart then creates `ate-system`.
 
 The `substrate-actor` and `substrate-registration` releases must be in the same namespace, because the Job reads the ConfigMaps of the actors. You can also sync each chart with Argo CD. The charts carry sync waves and hooks for it.
 
@@ -101,12 +104,13 @@ The `substrate-install` chart runs one Job that installs the release in `substra
 | `postgres.*` | upstream numbers | Size of the bundled Postgres (see [Postgres sizing](#postgres-sizing)). |
 | `selinux.*` | off | SELinux type of the `atelet` pods (see [SELinux](#selinux)). |
 | `egress.trustedCaPem` | `""` | A private CA for the egress gateway (see [Trust a private CA on the egress gateway](#trust-a-private-ca-on-the-egress-gateway)). |
+| `createNamespace` | `true` | Renders the namespace `ate-system` with the `privileged` Pod Security level. Set it to `false` if you create the namespace yourself. |
 | `rbac.clusterRole` | `cluster-admin` | The role of the Job. The install creates cluster roles, and an account can only grant what it holds. |
 | `backoffLimit` | `2` | Retries of the Job |
 | `activeDeadlineSeconds` | `1800` | The Job stops after this time. |
 | `resources`, `nodeSelector`, `tolerations` | see `values.yaml` | The pod of the Job |
 
-Keep `config.namespace` at `ate-system`. The generated patches and other charts name `ate-system` directly.
+The control plane namespace must be `ate-system`, because `ate-setup` refuses another one. The schemas allow only `ate-system` in `config.namespace` of `substrate-install`, `substrate.namespace` of `substrate-registration` and `substrate-idle-suspend`, and `observability.controlPlaneNamespace` of `substrate-workers`.
 
 The chart sets some parts of the document, and a value cannot change them. These parts are `apiVersion`, `kind`, `images`, `sandboxClasses`, `context`, `gcp.projectID`, `storage.transferGSAName` and `storage.bucketName`. The chart also sets `storage.snapshotLocation`, but you can change it within the bucket (see [Storage profiles](#storage-profiles)). `ate-setup` treats a cluster that is not kind as GCS and needs a project and a transfer account. S3 uses neither, so the chart sets both to `unused-placeholder`.
 
@@ -150,7 +154,7 @@ The snapshot location is `s3://<bucket>/`. You can set `config.storage.snapshotL
 For `s3-compatible`, set `storage.s3Compatible.endpoint` and `pathStyle` (default `true`). Give the keys in one of two ways:
 
 - Set `credentials.secretName` to an existing Secret in `ate-system`. The keys are named by `accessKeyKey` (default `access-key-id`) and `secretKeyKey` (default `secret-access-key`).
-- Set `credentials.externalSecret.enabled` to `true`, with `storeName`, `storeKind` and the two remote keys. The chart renders an ExternalSecret that creates the Secret `substrate-s3-credentials`. It also renders the namespace `ate-system` first, with `helm.sh/resource-policy: keep`, so a delete of the release does not remove the namespace. That namespace has no Pod Security label. This option is not verified on a cluster that enforces Pod Security.
+- Set `credentials.externalSecret.enabled` to `true`, with `storeName`, `storeKind` and the two remote keys. The chart renders an ExternalSecret in `ate-system` that creates the Secret `substrate-s3-credentials`. With `createNamespace: true`, Argo CD applies the namespace before the ExternalSecret (sync wave `-3`). The namespace carries `helm.sh/resource-policy: keep`, so a delete of the release does not remove it.
 
 For `aws`, the pods read the node credentials through the instance metadata service. A pod is one network hop past the node, so the nodes must allow IMDSv2 with a hop limit of 2. This is not verified.
 
@@ -203,7 +207,9 @@ Set `egress.trustedCaPem` to the PEM of the CA. It can hold more than one certif
 2. Generates the patch `26-egress-trusted-ca`. The patch mounts that ConfigMap over `/etc/ssl/certs/ca-certificates.crt` in the `envoy` container of `atenet-egress`.
 3. Puts a hash of the PEM on the gateway pod, so a new CA restarts the gateway.
 
-A value with only spaces counts as empty, and the chart then renders no Bundle and no patch. A value with no certificate in it fails the schema. The `patch-egress` step fails if the egress manifest no longer reads `/etc/ssl/certs/ca-certificates.crt`. The unit tests cover the render. No check applies this patch to the release manifests or runs it on a cluster.
+A value with only spaces counts as empty, and the chart then renders no Bundle and no patch. A value without `BEGIN CERTIFICATE` fails the schema.
+
+`ate-setup` applies `atenet-egress.yaml` on its own, outside the base kustomization. The `patch-egress` step therefore builds that manifest with the patch and writes it back. The step fails if the manifest no longer reads `/etc/ssl/certs/ca-certificates.crt`. It also fails if the marker line `#ATE_EGRESS_INJECT_FLAGS` is not there exactly once. `make test-image` runs this step on the real release manifest. No check runs it on a cluster.
 
 ## Run workers
 
@@ -298,7 +304,6 @@ Then install the chart with the same values file as the actor release, and set `
 | Value | Default | Meaning |
 |---|---|---|
 | `snapshotStorageLocation`, `actors` | as in `substrate-actor` | Must be the same as in the actor release |
-| `substrate.version` | `v1.0.0` | The release of the control plane |
 | `substrate.namespace` | `ate-system` | The namespace of `ate-api-server` |
 | `image.digest` | all zeros | Digest of the registration image. The all-zero digest never pulls. |
 | `waitSeconds` | `900` | How long the Job waits for `ate-api-server` and for the actor ConfigMaps |
@@ -421,7 +426,7 @@ The images build `ate-setup` and `kubectl-ate` from the release tag and verify t
 
 ## Upgrade
 
-1. Set `substrate.version` in `substrate-install`, `substrate-registration` and `substrate-idle-suspend` to the new release.
+1. Set `substrate.version` in `substrate-install` to the new release.
 2. Set `image.tag` and `image.digest` in `substrate-workers` to the worker image of the new release.
 3. Set `image.digest` of the install and registration images to an image built for that release.
 4. Run `helm upgrade` for each chart, in the order of the quick start.
@@ -433,11 +438,17 @@ The inputs of the install Job change, so a new Job runs. Do not change `postgres
 | Command | Where | What it verifies |
 |---|---|---|
 | `make test-commit` | the kube-devenv image | YAML lint, chart lint and render with `kubeconform`, unit tests, the registration and idle-suspend scripts against stubs, the template name contract, the `examples/onprem/` values and a secret scan |
-| `make test-image` | a host with Docker, `helm` and `awk` | Builds the install image and applies the patches to the real release manifests: the credential provider patch, the storage profile of each `ci` values file, the atelet SELinux patch and the Postgres sizing |
+| `make test-image` | a host with Docker, `helm` and `awk` | Builds the install image and applies the patches to the real release manifests: the credential provider patch, the storage profile of each `ci` values file, the atelet SELinux patch, the Postgres sizing and the `patch-egress` step |
 | `make test-image-registration` | a host with Docker | Builds the registration image and runs its tools |
 | `make test-integration` | a host with Docker, `kubectl`, `helm`, `jq` and `curl` | The full lifecycle on kind |
 
 CI runs all four. The render checks do not prove that an install works.
+
+`tests/egress-ca/test-image.sh` is the `patch-egress` part of `make test-image`. It renders the step with a test CA and runs it in the install image on the real `atenet-egress.yaml`. It verifies three things:
+
+- The bundle is mounted, and the marker `#ATE_EGRESS_INJECT_FLAGS` stays once, at the indent of the flags.
+- The markers and placeholders that `ate-setup` replaces later are still there.
+- The step fails, and leaves the manifest unchanged, if the manifest no longer reads the CA file or the marker is missing.
 
 ### Integration test
 
@@ -445,7 +456,7 @@ CI runs all four. The render checks do not prove that an install works.
 
 It verifies:
 
-- The install with the `s3-compatible` profile and RustFS, and a repeat install that changes nothing.
+- The install with the `s3-compatible` profile and RustFS, and a repeat install that changes nothing. The test creates `ate-system` first and sets `createNamespace: false`. Only the unit tests cover `createNamespace: true`.
 - A worker pool, and the SELinux admission policy on the worker pods. kind does not enforce SELinux, so the test verifies only the patch.
 - The registration of one actor, and a repeat run that changes nothing.
 - Resume, suspend and a restore from RustFS after the node-local snapshot is dropped. The snapshot uploads as a multipart object.
@@ -482,7 +493,7 @@ Each workaround, the upstream issue behind it, and what to remove when the issue
 | `--preview` in the registration Job | Each template names a snapshot location, which is a preview feature | none known | The flag |
 | The `substrate-idle-suspend` chart | Substrate v1.0.0 suspends no idle actor | #424, #483 (not verified) | The chart, and `curl` in the registration image |
 | The `examples/onprem/` values and the cluster requirements page | Upstream ships no profile for self-managed clusters | #1782 (not verified) | The examples |
-| RustFS with large multipart uploads, verified at 257 MiB only | Large sparse uploads can fail | #3921 (not verified) | The note, once a check covers 64 to 128 MiB and parallel uploads |
+| RustFS with large multipart uploads, verified with one multipart snapshot only | Large sparse uploads can fail | #3921 (not verified) | The note, once a check covers 64 to 128 MiB and parallel uploads |
 
 ## License
 

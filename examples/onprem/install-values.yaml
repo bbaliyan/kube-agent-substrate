@@ -8,6 +8,8 @@
 #   - Create the Secret "snapshot-store-keys" in ate-system with the keys
 #     access-key-id and secret-access-key. Use the same keys as RustFS.
 # See docs/cluster-requirements.md for the cluster requirements.
+# The namespace exists before the install, and Helm cannot adopt it, so the chart does not create it.
+createNamespace: false
 image:
   # Placeholder. Set the digest of a published install image.
   digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

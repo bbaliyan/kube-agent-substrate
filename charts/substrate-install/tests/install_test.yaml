@@ -98,7 +98,7 @@ tests:
           pattern: "repo: ghcr.io/agent-substrate/substrate\n"
       - matchRegex:
           path: data["substrate-install.yaml"]
-          pattern: "tag: v1.0.0\n"
+          pattern: 'tag: v[0-9]+[.][0-9]+[.][0-9]+\n'
       - matchRegex:
           path: data["substrate-install.yaml"]
           pattern: "kind: SubstrateInstall"

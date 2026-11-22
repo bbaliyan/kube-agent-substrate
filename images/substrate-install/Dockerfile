@@ -39,7 +39,7 @@ RUN go mod init kustomize-build \
 RUN mkdir -p /out/substrate && cp -a /src/manifests /src/go.mod /out/substrate/
 
 FROM ${RUNTIME_IMAGE}
-# renovate: datasource=github-releases depName=agent-substrate/substrate
+# renovate: datasource=github-tags depName=agent-substrate/substrate
 ARG SUBSTRATE_TAG=v1.0.0
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Installs Agent Substrate ${SUBSTRATE_TAG}" \

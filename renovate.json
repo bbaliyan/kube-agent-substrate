@@ -13,7 +13,8 @@
       "customType": "regex",
       "description": "The Substrate release that an image builds: the tag and the commit that it names, which Renovate updates together",
       "managerFilePatterns": [
-        "/^images/substrate-(install|registration)/Dockerfile$/"
+        "/^images/substrate-(install|registration)/Dockerfile$/",
+        "/^tests/integration/counter/Dockerfile$/"
       ],
       "matchStrings": [
         "ARG SUBSTRATE_TAG=(?<currentValue>v[^\\s]+)\\nARG SUBSTRATE_COMMIT=(?<currentDigest>[a-f0-9]{40})"

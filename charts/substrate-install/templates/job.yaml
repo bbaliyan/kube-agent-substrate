@@ -80,6 +80,33 @@ spec:
             - {name: work, mountPath: /work}
             - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
             - {name: pg-build, mountPath: /work/manifests/ate-install/pg-build, readOnly: true}
+{{- if (trim .Values.egress.trustedCaPem) }}
+        # Step 4: add the private CA to the egress gateway. ate-setup reads atenet-egress.yaml on its own,
+        # outside the base kustomization, so step 2 cannot reach it. Build the manifest with the patch and
+        # write it back over itself. kustomize drops comments, and ate-setup needs the marker comment of the
+        # credential flags, so the marker is a list item during the build. The step fails if the marker does
+        # not come out once, or if the manifest no longer reads the file that the patch replaces.
+        - name: patch-egress
+          image: {{ $image }}
+          command:
+            - sh
+            - -ec
+            - |
+              dir=/work/manifests/ate-install
+              grep -q "filename: /etc/ssl/certs/ca-certificates.crt" "$dir/atenet-egress.yaml" || { echo "the egress manifest no longer reads /etc/ssl/certs/ca-certificates.crt: the CA patch has no effect" >&2; exit 1; }
+              test "$(grep -c "^ *#ATE_EGRESS_INJECT_FLAGS" "$dir/atenet-egress.yaml")" = 1
+              sed "s|^\( *\)#ATE_EGRESS_INJECT_FLAGS.*|\1- '#ATE_EGRESS_INJECT_FLAGS'|" "$dir/atenet-egress.yaml" > "$dir/egress-input.yaml"
+              kustomize build --load-restrictor LoadRestrictionsNone "$dir/egress-build" | sed "s|^\( *\)- .#ATE_EGRESS_INJECT_FLAGS.|\1#ATE_EGRESS_INJECT_FLAGS -- Do not modify this line.|" > /tmp/egress.yaml
+              test "$(grep -c "^ *#ATE_EGRESS_INJECT_FLAGS" /tmp/egress.yaml)" = 1
+              cp /tmp/egress.yaml "$dir/atenet-egress.yaml"
+          securityContext:
+            {{- include "substrate-install.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: tmp, mountPath: /tmp}
+            - {name: patches, mountPath: {{ $patchDir }}, readOnly: true}
+            - {name: egress-build, mountPath: /work/manifests/ate-install/egress-build, readOnly: true}
+{{- end }}
       containers:
         - name: deploy
           image: {{ $image }}
@@ -103,6 +130,13 @@ spec:
             - {name: config, mountPath: /config, readOnly: true}
             - {name: tmp, mountPath: /tmp}
       volumes:
+        {{- if (trim .Values.egress.trustedCaPem) }}
+        - name: egress-build
+          configMap:
+            name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}
+            items:
+              - {key: egress-build, path: kustomization.yaml}
+        {{- end }}
         - name: pg-build
           configMap:
             name: {{ include "substrate-install.fullname" . }}-{{ include "substrate-install.hash" . }}

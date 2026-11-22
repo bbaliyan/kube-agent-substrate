@@ -43,6 +43,13 @@
         }
       }
     },
+    "egress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trustedCaPem": { "type": "string", "pattern": "^(\\s*|[\\s\\S]*BEGIN CERTIFICATE[\\s\\S]*)$" }
+      }
+    },
     "selinux": {
       "type": "object",
       "additionalProperties": false,

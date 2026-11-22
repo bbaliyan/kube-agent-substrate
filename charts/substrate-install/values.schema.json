@@ -118,7 +118,7 @@
       "additionalProperties": false,
       "description": "Body of the SubstrateInstall document. The chart owns images and sandboxClasses.",
       "properties": {
-        "namespace": { "type": "string" },
+        "namespace": { "type": "string", "enum": ["ate-system"], "description": "Upstream installs into ate-system only: its manifests name that namespace literally and ate-setup refuses any other value." },
         "gcp": { "type": "object" },
         "clusterSize": { "type": "string" },
         "rolloutTimeout": { "type": "string" },

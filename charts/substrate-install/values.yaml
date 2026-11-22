@@ -14,6 +14,7 @@ image:
 # images and sandboxClasses. The install uses the gVisor class only.
 # Upstream guide: docs/guides/operator-install.md in agent-substrate/substrate.
 config:
+  # Must be ate-system. The upstream manifests name it literally, and ate-setup refuses another value.
   namespace: ate-system
   clusterSize: size0
   rolloutTimeout: 5m0s

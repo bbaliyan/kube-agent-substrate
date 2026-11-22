@@ -18,7 +18,7 @@ The charts use plain Kubernetes objects. They do not depend on one cloud or dist
 
 - Storage has two profiles: `aws` (Amazon S3 with the IAM role of the node) and `s3-compatible` (any S3 API store with static keys). There is no Google Cloud Storage or Azure Blob profile.
 - The cluster must serve the Pod Certificate and ClusterTrustBundle APIs. If you cannot set API server feature gates, as on most managed clusters, your Kubernetes version must serve them by default.
-- The install always removes the image credential provider settings of `atelet` (patch `10-atelet-no-credential-provider`). An actor image that needs a kubelet credential provider, such as a private Amazon ECR repository, is therefore not expected to pull. This is not verified.
+- The install always removes the settings of `atelet` for an image credential provider (patch `10-atelet-no-credential-provider`). An actor image that needs a credential provider on the node, such as a private Amazon ECR repository, is therefore not expected to pull. This is not verified.
 - Only the gVisor sandbox class is installed. microVMs are not supported.
 
 What was verified, and where:
@@ -35,7 +35,7 @@ Not verified: an install on Amazon EKS or any AWS cluster, Google GKE, Azure AKS
 
 - Kubernetes 1.36 or later. Only 1.37 was verified.
 - The Pod Certificate and ClusterTrustBundle APIs.
-- A default StorageClass for the bundled Postgres.
+- A default StorageClass for the bundled Postgres, or a class in `config.ateapi.postgres.storageClass` of `substrate-install`.
 - The `privileged` Pod Security level on the control plane namespace `ate-system` and on each worker pool namespace.
 - The stub of the GKE `PodMonitoring` CRD, on any cluster without the GKE operator. Use `examples/onprem/podmonitoring-crd.yaml`.
 - An S3 bucket, or a bucket in an S3-compatible store.
@@ -47,7 +47,24 @@ Not verified: an install on Amazon EKS or any AWS cluster, Google GKE, Azure AKS
 
 ## Quick start
 
-Use the files in `examples/onprem/` as a start. They hold values for a small cluster with RustFS in the same cluster. For AWS, start from the `ci/aws-values.yaml` file of each chart. Replace every placeholder value.
+Use the files in `examples/onprem/` as a start. They hold values for a small cluster with SELinux nodes and an S3-compatible store. Replace every placeholder value.
+
+The charts deploy no object store. Bring your own S3 bucket or S3-compatible store, and set `storage.s3Compatible.endpoint` to it. The example expects RustFS at `http://rustfs.rustfs.svc:9000`. For a reference, `tests/integration/rustfs.yaml` deploys RustFS for the test, in the namespace `ate-system`.
+
+If you start from `charts/substrate-install/ci/aws-values.yaml`, add these keys to it. The values come from `tests/integration/install-values.yaml`:
+
+```yaml
+config:
+  preview: PerTemplateSnapshotLocation
+  atenet:
+    egress:
+      credentialProvider: '{"enabled":false}'
+  ateapi:
+    authz:
+      bootstrapOwners: system:serviceaccount:ate-system:ate-client,system:serviceaccount:substrate-system:substrate-registration
+```
+
+`ate-setup` needs `credentialProvider`, and the registration Job needs the other two (see [Register actors](#register-actors)).
 
 1. Verify the requirements with [docs/cluster-requirements.md](docs/cluster-requirements.md).
 2. Run `kubectl apply -f examples/onprem/podmonitoring-crd.yaml`.
@@ -56,10 +73,15 @@ Use the files in `examples/onprem/` as a start. They hold values for a small clu
 5. If you use the `s3-compatible` profile with an existing Secret, create the Secret in `ate-system`.
 6. Set `image.digest` in the install values (see [Images](#images)).
 7. Run `helm upgrade --install substrate-install charts/substrate-install -n substrate-system --create-namespace -f install-values.yaml --wait --wait-for-jobs --timeout 20m`.
-8. Create the worker pool namespace with the `privileged` label.
-9. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml`.
-10. Run `helm upgrade --install substrate-actor charts/substrate-actor -n substrate-system -f actors-values.yaml`.
-11. Run `helm upgrade --install substrate-registration charts/substrate-registration -n substrate-system -f actors-values.yaml --set image.digest=<digest> --wait --wait-for-jobs`.
+8. Label the worker nodes so that they match `pool.nodeSelector`. For the example, run `kubectl label node <node> worker-cpu-model=fixed`.
+9. Create the worker pool namespace with the `privileged` label.
+10. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml --set workers.replicas=0`.
+11. Wait a few seconds, so that the SELinux admission policy is active.
+12. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml`.
+13. Run `helm upgrade --install substrate-actor charts/substrate-actor -n substrate-system -f actors-values.yaml`.
+14. Run `helm upgrade --install substrate-registration charts/substrate-registration -n substrate-system -f actors-values.yaml --set image.digest=<digest> --wait --wait-for-jobs --timeout 15m`.
+
+If SELinux is off in the workers values, you can skip steps 10 and 11.
 
 The `substrate-actor` and `substrate-registration` releases must be in the same namespace, because the Job reads the ConfigMaps of the actors. You can also sync each chart with Argo CD. The charts carry sync waves and hooks for it.
 
@@ -80,10 +102,13 @@ The `substrate-install` chart runs one Job that installs the release in `substra
 | `selinux.*` | off | SELinux type of the `atelet` pods (see [SELinux](#selinux)). |
 | `egress.trustedCaPem` | `""` | A private CA for the egress gateway (see [Trust a private CA on the egress gateway](#trust-a-private-ca-on-the-egress-gateway)). |
 | `rbac.clusterRole` | `cluster-admin` | The role of the Job. The install creates cluster roles, and an account can only grant what it holds. |
+| `backoffLimit` | `2` | Retries of the Job |
+| `activeDeadlineSeconds` | `1800` | The Job stops after this time. |
+| `resources`, `nodeSelector`, `tolerations` | see `values.yaml` | The pod of the Job |
 
 Keep `config.namespace` at `ate-system`. The generated patches and other charts name `ate-system` directly.
 
-The chart sets these parts of the document, and a value cannot change them: `apiVersion`, `kind`, `images`, `sandboxClasses: gvisor`, `context`, `gcp.projectID`, `storage.transferGSAName`, `storage.bucketName` and `storage.snapshotLocation`. `ate-setup` treats a cluster that is not kind as GCS and needs a project and a transfer account. S3 uses neither, so the chart sets both to `unused-placeholder`.
+The chart sets some parts of the document, and a value cannot change them. These parts are `apiVersion`, `kind`, `images`, `sandboxClasses`, `context`, `gcp.projectID`, `storage.transferGSAName` and `storage.bucketName`. The chart also sets `storage.snapshotLocation`, but you can change it within the bucket (see [Storage profiles](#storage-profiles)). `ate-setup` treats a cluster that is not kind as GCS and needs a project and a transfer account. S3 uses neither, so the chart sets both to `unused-placeholder`.
 
 `ate-setup` needs a credential provider setting for egress. Set `config.atenet.egress.credentialProvider` to `{"name":"k8s.io"}` for the bundled Secrets provider. Set it to `{"enabled":false}` to turn off credential injection. The `ci/` values files do not set it.
 
@@ -95,7 +120,7 @@ The chart sets these parts of the document, and a value cannot change them: `api
 4. If `egress.trustedCaPem` is set, the `patch-egress` init container writes the CA mount over the egress gateway manifest.
 5. The `deploy` container runs `ate-setup deploy` on the patched copy.
 
-The Job and its ConfigMap carry a hash of the pod inputs in their names. A change to the image, the patches, the config, the environment, the resources, the node selector, the tolerations or the service account creates a new Job. The same inputs find the old Job, and nothing runs again. A repeat run on an installed cluster changes nothing.
+The Job and its ConfigMap carry a hash of the Job inputs in their names. A change to one of these inputs creates a new Job: the image, the patches, the config, the environment and the resources. The node selector, the tolerations, the service account, `backoffLimit` and `activeDeadlineSeconds` count too. The same inputs find the old Job, and nothing runs again. A repeat run on an installed cluster changes nothing.
 
 ### Patches
 
@@ -129,7 +154,7 @@ For `s3-compatible`, set `storage.s3Compatible.endpoint` and `pathStyle` (defaul
 
 For `aws`, the pods read the node credentials through the instance metadata service. A pod is one network hop past the node, so the nodes must allow IMDSv2 with a hop limit of 2. This is not verified.
 
-Do not add an expiry rule for objects to the bucket. A suspended actor keeps its state in a snapshot object, and that object can rest for months. You should add a rule that aborts incomplete multipart uploads after a few days. Objects that a failed checkpoint upload leaves behind are not removed (upstream issue #610).
+Do not add an expiry rule for objects to the bucket. A suspended actor keeps its state in a snapshot object, and that object can rest for months. You should add a rule that aborts incomplete multipart uploads after a few days. Objects that a failed checkpoint upload leaves behind are not removed.
 
 ### Postgres sizing
 
@@ -143,11 +168,13 @@ Upstream sets fixed resources on the bundled Postgres. A small node cannot sched
 | `postgres.resources.limits.memory` | `2Gi` |
 | `postgres.storage` | `500Gi` |
 
-Write the CPU and memory values as strings. The schema rejects other forms, zero and unknown keys. `examples/onprem/install-values.yaml` uses a 250m CPU request and a 10 GiB volume.
+Write the CPU and memory values as strings. The schema rejects other forms, zero and unknown keys. `examples/onprem/install-values.yaml` uses a CPU request of 250 millicores and a volume of 10 GiB.
+
+The volume uses the default StorageClass. To use another class, set `config.ateapi.postgres.storageClass`. `charts/substrate-install/ci/aws-values.yaml` sets `gp3`. The chart passes this key to `ate-setup` unchanged, and no check verifies it on a cluster.
 
 Limits:
 
-- A StatefulSet cannot change its volume claim (upstream issue #3691). Set `postgres.storage` before the first install. A later change fails the install.
+- A StatefulSet cannot change its volume claim. Set `postgres.storage` before the first install. A later change fails the install.
 - With `config.clusterSize: size10`, `ate-setup` sets the CPU and memory itself. Only `postgres.storage` applies.
 
 ### SELinux
@@ -164,7 +191,7 @@ On nodes that enforce SELinux, such as the RHEL family, the `atelet` and worker 
 
 With a type other than `spc_t`, a missing level fails the render. Without a fixed level, each container of the `atelet` pod gets its own MCS categories, and the object-store plugin cannot read the pod files.
 
-Known limit of `container_engine_t`: the policy denies `atelet` the connection to the kubelet socket. The node then offers no `ate.dev/kvm` resource. The gVisor class does not need it.
+Known limit of `container_engine_t`: the policy denies `atelet` the connection to the kubelet socket. The node then offers no `ate.dev/kvm` resource. The gVisor class does not need it. This limit was seen in the manual run, and no check verifies it.
 
 ### Trust a private CA on the egress gateway
 
@@ -187,20 +214,32 @@ The `substrate-workers` chart renders one WorkerPool in the release namespace. T
 3. Set `workers.replicas`, `workers.cpu` and `workers.memory`.
 4. Install the chart in the namespace of the pool.
 
+| Value | Default | Meaning |
+|---|---|---|
+| `pool.name` | the release name | Name of the WorkerPool. The worker pods carry the label `ate.dev/worker-pool=<name>`. |
+| `pool.labels` | `{}` | Labels of the WorkerPool. The `workerSelector` of an actor matches them. |
+| `pool.nodeSelector`, `pool.tolerations` | `{}`, `[]` | Where the worker pods run |
+| `image.tag`, `image.digest` | `v1.0.0` and its digest | The `ateworker-gvisor` image of the release |
+| `workers.replicas` | `2` | Number of worker pods |
+| `workers.cpu`, `workers.memory` | `"1"`, `2Gi` | Request and limit of each worker pod |
+| `sandboxClass` | `gvisor` | The only value that the schema accepts |
+| `selinux.enabled`, `selinux.type` | `false`, `spc_t` | See [SELinux on workers](#selinux-on-workers) |
+| `observability.enabled` | `false` | See [Observability](#observability) |
+
 The chart sets the limits equal to the requests, so each worker pod is Guaranteed. A worker must offer at least the CPU and memory of the actor it runs. You should run at least 2 workers: the golden snapshot holds one worker while an actor runs on another.
 
 `atelet` tolerates the taint `ate.dev/sandboxClass:NoSchedule`. To reserve nodes for workers, taint them with `ate.dev/sandboxClass=gvisor:NoSchedule`.
 
 ### One CPU model for each pool
 
-A gVisor snapshot depends on the CPU features of the worker that made it (upstream issue #1657). A worker with other CPU features cannot restore it. Use one CPU model in each pool, and a second pool for other hardware.
+A gVisor snapshot depends on the CPU features of the worker that made it. A worker with other CPU features cannot restore it. Use one CPU model in each pool, and a second pool for other hardware.
 
 - On AWS, use one instance type for the pool. One instance type can span processor generations, so prefer a family with one generation, such as `m6i`.
 - On VMs, set a fixed named CPU model. Do not pass the host CPU through on mixed hardware.
 
 ### SELinux on workers
 
-The `MutatingAdmissionPolicy` matches only pods with the label `ate.dev/worker-pool=<pool name>` in the release namespace. It has `failurePolicy: Fail`. Workers need no level. The policy needs `admissionregistration.k8s.io/v1`, which Kubernetes serves from 1.36. The chart renders no beta version.
+The `MutatingAdmissionPolicy` matches only pods with the label `ate.dev/worker-pool=<pool name>` in the release namespace. It has `failurePolicy: Fail`. Workers need no level. The policy needs `admissionregistration.k8s.io/v1`, and the chart renders no beta version. The chart assumes that Kubernetes 1.36 serves `v1`. This is not verified.
 
 A new policy takes a few seconds to become active, and it does not change a pod that already exists. Argo CD applies the policy first (sync wave `-1`). With Helm, do these steps:
 
@@ -236,7 +275,7 @@ The chart renders one ConfigMap for each actor, with the ActorTemplate and the e
 | `egress` | no | Rules with `protocol` (`http`, `https` or `tlsPassthrough`), `hostnames`, `ports` and an optional `credential` |
 | `egressTrustBundle` | no | Mounts the egress gateway CA (see below) |
 
-`snapshotStorageLocation` is the snapshot location of every template. The examples and the integration test use `s3://<bucket>/<prefix>`.
+`snapshotStorageLocation` is the snapshot location of every template. The default is `objectstore://substrate-snapshots`. The examples and the integration test use `s3://<bucket>/<prefix>`, and only that form is verified. `actors` defaults to an empty list.
 
 An `https` egress rule ends TLS at the egress gateway, so the application must trust the gateway CA. Set `egressTrustBundle: true`. The chart then mounts the gateway CA and the public roots in one file, `/run/ate/egress-trust-bundle/trust-bundle.pem`. Point the application at the file, for example with `SSL_CERT_FILE`. Python `requests` reads `REQUESTS_CA_BUNDLE`.
 
@@ -247,12 +286,26 @@ An ActorTemplate, an Actor and an EgressPolicy are not Kubernetes resources. The
 Before the first registration, set these values in `substrate-install`:
 
 1. Append the service account of the Job to `config.ateapi.authz.bootstrapOwners`: `system:serviceaccount:<namespace>:<service account>`. The Job creates atespaces, and only a bootstrap owner can.
-2. Keep `system:serviceaccount:ate-system:ate-client` in that list if you use it. The value is one comma-separated string, and a set list replaces the default.
+2. If you use the `ate-client` account, keep `system:serviceaccount:ate-system:ate-client` in that list.
 3. Set `config.preview` to `PerTemplateSnapshotLocation`. Each template names its snapshot location, and the server accepts that only with this preview gate.
+
+The value of `bootstrapOwners` is one comma-separated string, and a set list replaces the default.
 
 The service account name is `<release>-substrate-registration`, cut to 40 characters. If the release name already contains `substrate-registration`, the name is the release name. `serviceAccount.name` replaces it.
 
 Then install the chart with the same values file as the actor release, and set `image.digest`.
+
+| Value | Default | Meaning |
+|---|---|---|
+| `snapshotStorageLocation`, `actors` | as in `substrate-actor` | Must be the same as in the actor release |
+| `substrate.version` | `v1.0.0` | The release of the control plane |
+| `substrate.namespace` | `ate-system` | The namespace of `ate-api-server` |
+| `image.digest` | all zeros | Digest of the registration image. The all-zero digest never pulls. |
+| `waitSeconds` | `900` | How long the Job waits for `ate-api-server` and for the actor ConfigMaps |
+| `backoffLimit`, `activeDeadlineSeconds` | `2`, `1800` | Retries and time limit of the Job |
+| `ttlSecondsAfterFinished` | `86400` | Time before a finished Job is deleted |
+| `job.annotations` | Argo CD `Sync` hook, `BeforeHookCreation`, sync wave `1` | Annotations of the Job. With Helm only, you can set it to `null`, as the integration test does. |
+| `serviceAccount.name` | `""` | Replaces the generated service account name |
 
 ### What the Job does
 
@@ -269,7 +322,7 @@ Then install the chart with the same values file as the actor release, and set `
 
 A template is immutable, so its name carries a hash of the actor values and the snapshot location. A change to the image, command, environment, resources, worker selector or probe gives a new template. A change to the egress rules does not: the policy changes in place. `make test-contract` fails if the two charts compute different names.
 
-If an actor was busy, suspend it and sync again. The default values set Argo CD hook annotations, so Argo CD runs the Job on every sync. Helm deletes a finished Job after `ttlSecondsAfterFinished` (default 86400 seconds).
+If an actor was busy, suspend it and sync again. The default values set Argo CD hook annotations, so Argo CD runs the Job on every sync. The Kubernetes TTL controller deletes a finished Job after `ttlSecondsAfterFinished` (default 86400 seconds).
 
 ### Access of the Job
 
@@ -285,18 +338,43 @@ RBAC cannot name a pod that changes on every rollout, so the Role covers every p
 
 ## Suspend idle actors
 
-Substrate v1.0.0 never suspends an idle actor (upstream issues #424 and #483). The `substrate-idle-suspend` chart runs a CronJob that does it for the actors you list. The CronJob uses the registration image. You can delete the chart when upstream ships its own idle policy.
+Substrate v1.0.0 never suspends an idle actor. The `substrate-idle-suspend` chart runs a CronJob that does it for the actors you list. The CronJob uses the registration image. You can delete the chart when upstream ships its own idle policy.
+
+Warnings:
+
+- An actor that answers at once and keeps working in the background can look idle. Set `idleMinutes` longer than its longest background task.
+- A request that is younger than one scrape interval is not in the data yet. Keep `idleMinutes` well above the scrape interval.
+- Upstream v1.0.0 documents no drain of a running request on suspend. A suspend at that moment can cut the request.
+
+To install:
 
 1. Make Prometheus scrape `atenet-router`, `atenet-egress`, `ate-api-server` and `atelet`.
 2. Copy `examples/onprem/idle-suspend-values.yaml`.
 3. Set `actors`, `prometheus.url` and `image.digest`.
 4. Set `schedule` (default every 5 minutes) and `idleMinutes` (default 30).
 5. Install the chart.
-6. Run `kubectl ate update access-policy -a <atespace>`, and grant the CronJob principal the `editor` role.
+6. Write an access policy file with a binding of the `editor` role to the CronJob principal.
+7. If the atespace has no access policy, run `kubectl ate --preview create access-policy -a <atespace> -f <file>`.
+8. If the atespace already has a policy, add the binding to it and run `kubectl ate --preview update access-policy -a <atespace> -f <file>`.
 
 The principal is `user:system:serviceaccount:<release namespace>:<service account>`. The service account name follows the same rule as the registration chart, with `substrate-idle-suspend`. Do not make this account a bootstrap owner.
 
 If Prometheus needs a bearer token, set `prometheus.bearerTokenSecret.name`. If it uses a private CA, set `prometheus.caSecret.name`.
+
+| Value | Default | Meaning |
+|---|---|---|
+| `actors` | `[]` | The `atespace` and `name` of each actor to watch. An empty list fails each run. |
+| `schedule` | `"*/5 * * * *"` | Cron schedule of the CronJob |
+| `idleMinutes` | `30` | Minutes with no activity before a suspend |
+| `idleCpuCores` | `0.05` | CPU cores that still count as idle |
+| `suspendMode` | `async` | `async` (the upstream default) or `sync`: how the snapshot becomes durable |
+| `prometheus.url` | `http://prometheus-operated.monitoring.svc:9090` | Base URL of Prometheus |
+| `prometheus.timeoutSeconds` | `20` | Time limit of one query |
+| `queries.*` | see `values.yaml` | The PromQL of each signal |
+| `image.digest` | all zeros | Digest of the registration image |
+| `activeDeadlineSeconds` | `300` | Time limit of one run |
+| `startingDeadlineSeconds` | `120` | A run that starts later than this is skipped. |
+| `suspend` | `false` | Set to `true` to stop the schedule and keep the chart. |
 
 ### When an actor is suspended
 
@@ -313,19 +391,13 @@ A run suspends an actor only when all of these are true:
 | `inflight` | Any request or tunnel through the router was open in the idle time. This signal covers every actor. |
 | `cpu` | The CPU rate over the idle time is above `idleCpuCores` (default 0.05). |
 
-Any other result suspends nothing and fails the run. One failing actor does not stop the check of the others. The queries are values in `queries.*`. Change them if your Prometheus names the metrics or labels in another way.
+Any other result suspends nothing and fails the run. One failing actor does not stop the run for the other actors. The queries are values in `queries.*`. If your Prometheus names the metrics or labels in another way, change the queries.
 
 Each actor of `substrate-actor` has its own template, so a template signal is an actor signal. If actors share a template, a busy actor keeps the others awake.
 
-Warnings:
-
-- An actor that answers at once and keeps working in the background can look idle. Set `idleMinutes` longer than its longest background task.
-- A request that is younger than one scrape interval is not in the data yet. Keep `idleMinutes` well above the scrape interval.
-- Upstream v1.0.0 documents no drain of a running request on suspend. A suspend at that moment can cut the request.
-
 ## Call an actor through the router
 
-A client in the cluster reaches an actor through the ingress router `atenet-router`. The router resumes a suspended actor and routes the request. The first start of a new actor can take about 15 seconds, and the router can answer 502 or 504 meanwhile. The charts include no client.
+A client in the cluster reaches an actor through the ingress router `atenet-router`. The router resumes a suspended actor and routes the request. The charts include no client.
 
 1. Add the client identity to `config.ingressAllowedSPIFFEIDs` in `substrate-install`: `spiffe://<trust domain>/ns/<namespace>/sa/<service account>`.
 2. Give the client pod a pod certificate of the signer `podidentity.podcert.ate.dev/identity`.
@@ -349,9 +421,10 @@ The images build `ate-setup` and `kubectl-ate` from the release tag and verify t
 
 ## Upgrade
 
-1. Set `substrate.version` in each chart and `image.tag` and `image.digest` in `substrate-workers` to the new release.
-2. Set `image.digest` of the install and registration images to an image built for that release.
-3. Run `helm upgrade` for each chart, in the order of the quick start.
+1. Set `substrate.version` in `substrate-install`, `substrate-registration` and `substrate-idle-suspend` to the new release.
+2. Set `image.tag` and `image.digest` in `substrate-workers` to the worker image of the new release.
+3. Set `image.digest` of the install and registration images to an image built for that release.
+4. Run `helm upgrade` for each chart, in the order of the quick start.
 
 The inputs of the install Job change, so a new Job runs. Do not change `postgres.storage` on an installed cluster. This procedure is not verified: v1.0.0 is the only release that the charts support today.
 
@@ -385,31 +458,31 @@ It does not verify: IAM access to S3, SELinux enforcement, observability, creden
 
 ## Workaround ledger
 
-Each workaround, the upstream issue behind it, and what to remove when the issue is fixed. Upstream is `agent-substrate/substrate`.
+Each workaround, the upstream issue behind it, and what to remove when the issue is fixed. Upstream is `agent-substrate/substrate`. An issue marked "not verified" has no reference in the code or tests of this repo.
 
 | Workaround | Why | Upstream issue | Remove when fixed |
 |---|---|---|---|
-| The install Job, its image and its patches | Upstream installs with `ate-setup` and ships no Helm chart | #3158, #3170, #3686, #3240 | The Job and the install image |
-| Patch `10-atelet-no-credential-provider` | `atelet` expects a kubelet image credential provider on the node | #2669, #3667 | The patch |
+| The install Job, its image and its patches | Upstream installs with `ate-setup` and ships no Helm chart | #3158, #3170, #3686, #3240 (not verified) | The Job and the install image |
+| Patch `10-atelet-no-credential-provider` | `atelet` expects a credential provider for images on the node | #2669, #3667 | The patch |
 | Patch `20-storage-profile` | The default backend is GCS, and the settings repeat in each container | #3668, #2378 | The patch |
-| Placeholders for `gcp.projectID` and `storage.transferGSAName`, and `context` | `ate-setup` treats a cluster that is not kind as GKE | #3651 | The placeholders |
+| Placeholders for `gcp.projectID` and `storage.transferGSAName`, and `context` | `ate-setup` treats a cluster that is not kind as GCS | #3651 (not verified) | The placeholders |
 | Patch `25-atelet-selinux` and the worker admission policy | The pods run as `container_t` and cannot write `/var/lib/ate` | #3597 | Both `selinux` switches |
 | Patch `30-postgres-sizing` and the `patch-postgres` step | Upstream hardcodes the Postgres sizing | #3167, #3168 | The patch, the step and the `postgres` values |
 | Patch `26-egress-trusted-ca` and the trust-manager Bundle | The egress gateway trusts the public roots only | none known | The patch, the Bundle and `egress.trustedCaPem` |
 | The stub `PodMonitoring` CRD | The manifests hold a `PodMonitoring` object, and `ate-setup` stops without the CRD | #2589 | The stub |
 | PodMonitors in `substrate-workers` | Upstream ships only the GKE `PodMonitoring` kind | #2589 | The PodMonitors |
 | gVisor class only | microVM assets need a cloud CLI outside kind | none known | `sandboxClasses: gvisor` in the chart |
-| One CPU model for each pool | A gVisor snapshot depends on the CPU features | #1657 | The rule |
-| No expiry rule on the bucket | A failed checkpoint upload leaves objects behind | #610 | The rule |
+| One CPU model for each pool | A gVisor snapshot depends on the CPU features | #1657 (not verified) | The rule |
+| No expiry rule on the bucket | A failed checkpoint upload leaves objects behind | #610 (not verified) | The rule |
 | The registration Job | Actors, templates and egress policies are not Kubernetes resources | none known | The registration chart |
 | A hash in the template name, and a compare of the live egress policy | A template has no metadata and cannot change | none known | The hash |
 | Move an actor only while it is suspended | The server refuses to move a running actor | none known | The busy-actor gate |
 | The Job is a bootstrap owner and passes its own token | `kubectl ate` falls back to the shared `ate-client` account | none known | The bootstrap owner entry |
 | The Role covers every pod in `ate-system` | Port-forward RBAC cannot name a pod | none known | The Role |
 | `--preview` in the registration Job | Each template names a snapshot location, which is a preview feature | none known | The flag |
-| The `substrate-idle-suspend` chart | Substrate v1.0.0 suspends no idle actor | #424, #483 | The chart, and `curl` in the registration image |
-| The `examples/onprem/` values and the cluster requirements page | Upstream ships no profile for self-managed clusters | #1782 | The examples |
-| RustFS with large multipart uploads, verified at 257 MiB only | Large sparse uploads can fail | #3921 | The note, once a check covers 64 to 128 MiB and parallel uploads |
+| The `substrate-idle-suspend` chart | Substrate v1.0.0 suspends no idle actor | #424, #483 (not verified) | The chart, and `curl` in the registration image |
+| The `examples/onprem/` values and the cluster requirements page | Upstream ships no profile for self-managed clusters | #1782 (not verified) | The examples |
+| RustFS with large multipart uploads, verified at 257 MiB only | Large sparse uploads can fail | #3921 (not verified) | The note, once a check covers 64 to 128 MiB and parallel uploads |
 
 ## License
 

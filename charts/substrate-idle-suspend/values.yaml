@@ -48,7 +48,7 @@ queries:
     router: 'count(go_memstats_alloc_bytes{app="atenet-router"})'
     ateapi: 'count(go_memstats_alloc_bytes{app="ate-api-server"})'
     atelet: 'count(go_memstats_alloc_bytes{app="atelet"})'
-  # 1 when the router or the egress proxy counted a route for the template in the idle time.
+  # 1 when the router or the egress gateway counted a route for the template in the idle time.
   # It compares the sum now with the sum one idle time ago. It does not use increase():
   # a counter that starts at 1 has no earlier sample, so increase() reads 0 for the first request.
   routed: '(sum(atenet_router_route_duration_seconds_count{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}) or vector(0)) != bool (sum(atenet_router_route_duration_seconds_count{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"} offset @WINDOW@) or vector(0))'

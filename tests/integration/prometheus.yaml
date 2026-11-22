@@ -1,6 +1,6 @@
 # A minimal Prometheus for the idle-suspend check. It scrapes what a real cluster scrapes: the
 # /metrics port of the control plane pods (the OpenTelemetry metrics through the Prometheus
-# exporter) and the Envoy metrics port of the router and the egress proxy. Test use only.
+# exporter) and the Envoy metrics port of the router and the egress gateway. Test use only.
 apiVersion: v1
 kind: Namespace
 metadata:

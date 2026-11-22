@@ -11,16 +11,16 @@ The cluster must run Kubernetes 1.36 or later. Only 1.37 was verified.
 1. Run `kubectl version`.
 2. Verify that the server version is v1.36 or later.
 
-If you turn on SELinux in the `substrate-workers` chart, the cluster must also serve `MutatingAdmissionPolicy` in `admissionregistration.k8s.io/v1`. The chart renders no beta version.
+If you turn on SELinux in the `substrate-workers` chart, the cluster must also serve `MutatingAdmissionPolicy` in `admissionregistration.k8s.io/v1`. The chart renders no beta version. The first Kubernetes version that serves `v1` is not verified here.
 
 1. Run `kubectl api-resources --api-group=admissionregistration.k8s.io`.
 2. Verify that the list holds `mutatingadmissionpolicies` with the version `admissionregistration.k8s.io/v1`.
 
 ## 2. Pod Certificate and ClusterTrustBundle APIs
 
-The control plane gives each pod an identity through the `PodCertificateRequest` API. It shares trust roots through `ClusterTrustBundle` objects and projected volumes. Substrate v1.0.0 uses `certificates.k8s.io/v1` when the cluster serves it, and `v1beta1` otherwise.
+The control plane gives each pod an identity through the `PodCertificateRequest` API. It shares trust roots through `ClusterTrustBundle` objects and projected volumes.
 
-- The manual run on Kubernetes 1.37 set no feature gate.
+- The manual run on Kubernetes 1.37 set no feature gate. No check repeats this, so it is not verified.
 - The kind cluster of the integration test sets the feature gates `ClusterTrustBundle`, `ClusterTrustBundleProjection` and `PodCertificateRequest`, and `--runtime-config=certificates.k8s.io/v1beta1=true`. These are the settings of the upstream kind script.
 - On a managed cluster you usually cannot set feature gates. The version must then serve both APIs by default.
 
@@ -56,7 +56,7 @@ The bundled Postgres asks for a `ReadWriteOnce` volume from the default StorageC
 
 ## 4. Pod Security level
 
-`atelet` mounts the host directories `/dev`, `/var/lib/ate` and the kubelet plugin directories. The worker pods need a host path volume and can need a SELinux type. The Baseline level blocks both, so the namespaces need the `privileged` level.
+`atelet` mounts the host directories `/dev`, `/var/lib/ate` and the kubelet plugin directories. The worker pods mount a host path volume too. The Baseline level blocks host path volumes and the SELinux type `spc_t`, so the namespaces need the `privileged` level.
 
 1. Create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`.
 2. Create the namespace of each worker pool with the same label.
@@ -105,8 +105,9 @@ Nested virtualization is needed only for microVMs. The charts install the gVisor
 
 1. Run `docker manifest inspect ghcr.io/bbaliyan/kube-agent-substrate/substrate-install:main-<short commit>` on a machine with no stored registry credentials.
 2. Verify that the command prints the manifest. The nodes can then pull the image without a login.
-3. Create the snapshot bucket before the install. RustFS 1.0.x cannot create a bucket on its own, so run a Job with a pinned AWS CLI image that runs `aws s3api create-bucket`.
-4. If the actor image is in a registry in the cluster, address it by the IP address of its Service. `atelet` pulls the image itself, and it pulls over plain HTTP only from a private address.
+3. Create the snapshot bucket before the install.
+4. If you use RustFS 1.0.x, create the bucket with the S3 API, for example `aws s3api create-bucket`. RustFS 1.0.x cannot create a bucket on its own. `tests/integration/rustfs.yaml` does this with a Job.
+5. If the actor image is in a registry in the cluster, address it by the IP address of its Service. `atelet` pulls the image itself, and it pulls over plain HTTP only from a private address.
 
 ## 10. The GKE PodMonitoring CRD
 
@@ -125,18 +126,16 @@ Skip this section if you do not run `kubectl ate proxy`. The registration and id
 1. Add `spiffe://cluster.local/ns/ate-system/sa/atenet-client` to `config.ingressAllowedSPIFFEIDs`.
 2. If your account is not a cluster admin, create a Role in `ate-system`. Allow `create`, `get`, `list`, `watch` and `delete` on `podcertificaterequests`.
 3. Add `get` and `list` on `services`, `endpoints` and `pods` to the Role, and bind it to your account.
-4. Run `kubectl ate proxy actor <name> 8081:80 -a <atespace>`.
+4. Run `kubectl ate --preview proxy actor <name> 8081:80 -a <atespace>`.
 5. Run `curl http://127.0.0.1:8081/`.
 6. Verify that the actor answers.
 
 ## What the manual run showed
 
-The run used a self-managed RKE2 cluster with Kubernetes 1.37, SELinux enforcing, RustFS and the values of `examples/onprem/`.
+The run used a self-managed RKE2 cluster with Kubernetes 1.37, SELinux enforcing, RustFS and the values of `examples/onprem/`. No check in this repo repeats these results, so they are not verified.
 
-- The install Job finished in 29 seconds after the images were on the node.
-- The control plane, Postgres, RustFS and two workers requested 2.7 CPUs in total.
 - Without `selinux.enabled`, `atelet` exited with `permission denied` on `/var/lib/ate`. A worker without the policy exited with `permission denied` on the remount of `/sys/fs/cgroup`. Both ran with the switches on.
-- gVisor ran with the `systrap` platform. It needed no nested virtualization.
+- gVisor needed no nested virtualization.
 - A sample actor started, suspended and resumed with its counters intact. It also resumed after a revert dropped the node-local snapshot, so the restore came from RustFS.
 - A second run with `container_engine_t` passed the same steps. The node offered no `ate.dev/kvm` resource.
 - The interactive proxy needed the steps of section 11.

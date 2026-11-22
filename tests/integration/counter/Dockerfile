@@ -11,8 +11,8 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
-ARG SUBSTRATE_TAG=v1.0.0
-ARG SUBSTRATE_COMMIT=b34fbee742906494b5eb4f1f36987176bf8770a4
+ARG SUBSTRATE_TAG=v1.0.1
+ARG SUBSTRATE_COMMIT=20778a6dbb01f13024642851bb592bf67c9fec05
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN git clone --quiet --depth 1 --branch "${SUBSTRATE_TAG}" https://github.com/agent-substrate/substrate /src \
  && test "$(git -C /src rev-parse HEAD)" = "${SUBSTRATE_COMMIT}"

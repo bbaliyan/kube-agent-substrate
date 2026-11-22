@@ -14,8 +14,8 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
-ARG SUBSTRATE_TAG=v1.0.0
-ARG SUBSTRATE_COMMIT=b34fbee742906494b5eb4f1f36987176bf8770a4
+ARG SUBSTRATE_TAG=v1.0.1
+ARG SUBSTRATE_COMMIT=20778a6dbb01f13024642851bb592bf67c9fec05
 # renovate: datasource=go depName=sigs.k8s.io/kustomize/kustomize/v5
 ARG KUSTOMIZE_VERSION=v5.8.3
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
@@ -38,7 +38,7 @@ RUN mkdir -p /out/substrate && cp -a /src/manifests /src/go.mod /out/substrate/
 
 FROM ${RUNTIME_IMAGE}
 # renovate: datasource=github-tags depName=agent-substrate/substrate
-ARG SUBSTRATE_TAG=v1.0.0
+ARG SUBSTRATE_TAG=v1.0.1
 LABEL org.opencontainers.image.source="https://github.com/bbaliyan/kube-agent-substrate" \
       org.opencontainers.image.description="Installs Agent Substrate ${SUBSTRATE_TAG}" \
       org.opencontainers.image.licenses="Apache-2.0"

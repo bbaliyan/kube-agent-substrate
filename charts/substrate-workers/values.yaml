@@ -10,8 +10,8 @@ pool:
 # The worker image. The tag names the Substrate release and must match the control plane.
 image:
   repository: ghcr.io/agent-substrate/substrate/ateworker-gvisor
-  tag: v1.0.0
-  digest: sha256:f8987236c6256f58c4b2625e543b43f4ae4bdded6ee6821c03d966effb7c0f17
+  tag: v1.0.1
+  digest: sha256:fd0c6a46d6c69d485856171e632906e774594bea9d00011a4d7038be3e084a2a
 
 # Sizing of the pool. Set it for each cluster.
 # A worker needs room beside the control-plane pods on the same nodes: the nodes must

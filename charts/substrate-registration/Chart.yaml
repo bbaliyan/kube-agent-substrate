@@ -4,4 +4,4 @@ description: Registers the actors of the substrate-actor chart in a running Agen
 type: application
 version: 0.1.0
 # renovate: datasource=github-tags depName=agent-substrate/substrate
-appVersion: v1.0.0
+appVersion: v1.0.1

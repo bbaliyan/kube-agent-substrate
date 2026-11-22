@@ -169,6 +169,7 @@ test-image: image
 	    case "$$flat" in *"storage: $$STORAGE "*) ;; *) echo "storage $$STORAGE not found"; exit 1;; esac && \
 	    echo "postgres sizing $$REQ / $$LIM, storage $$STORAGE: written over the postgres manifest by the command of the Job"' sh $$cmd || exit 1; \
 	done
+	IMAGE="$(IMAGE)" bash tests/egress-ca/test-image.sh
 
 # Pushes the multi-arch install image and prints its digest. CI runs it on main only.
 publish:

@@ -5,7 +5,7 @@ templates:
 values:
   - ../ci/aws-values.yaml
 tests:
-  - it: defaults to the upstream v1.0.0 numbers
+  - it: defaults to the upstream numbers
     template: templates/configmap.yaml
     asserts:
       - matchRegex:

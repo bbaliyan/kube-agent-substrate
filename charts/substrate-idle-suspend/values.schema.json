@@ -64,9 +64,8 @@
     "substrate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "namespace"],
+      "required": ["namespace"],
       "properties": {
-        "version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" },
         "namespace": { "type": "string", "minLength": 1 }
       }
     },

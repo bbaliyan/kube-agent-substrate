@@ -122,3 +122,11 @@ tests:
         documentSelector:
           path: kind
           value: Role
+
+  - it: rejects substrate.version, which the digest-only image reference replaced
+    template: templates/job.yaml
+    set:
+      substrate.version: v1.0.0
+    asserts:
+      - failedTemplate:
+          errorPattern: "version"

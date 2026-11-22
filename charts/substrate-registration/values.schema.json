@@ -23,7 +23,7 @@
       "required": ["version", "namespace"],
       "properties": {
         "version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" },
-        "namespace": { "type": "string", "minLength": 1 }
+        "namespace": { "type": "string", "enum": ["ate-system"] }
       }
     },
     "image": {

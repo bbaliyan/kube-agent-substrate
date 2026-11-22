@@ -43,6 +43,7 @@
         }
       }
     },
+    "createNamespace": { "type": "boolean" },
     "egress": {
       "type": "object",
       "additionalProperties": false,

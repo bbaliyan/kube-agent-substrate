@@ -63,7 +63,7 @@ queries:
 substrate:
   # The release of the control plane. The image is tagged with the same version.
   version: v1.0.0
-  # The namespace of ate-api-server.
+  # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system
 
 # The image of the substrate-registration chart: kubectl-ate, jq, curl and bash.

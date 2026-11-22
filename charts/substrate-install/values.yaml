@@ -86,6 +86,11 @@ selinux:
 egress:
   trustedCaPem: ""
 
+# Render the control plane namespace with the privileged Pod Security level. Set false if you create the
+# namespace yourself: Helm cannot adopt a namespace that already exists. Then you must label it
+# pod-security.kubernetes.io/enforce=privileged, or a cluster that enforces a stricter level rejects the pods.
+createNamespace: true
+
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.
 env: []

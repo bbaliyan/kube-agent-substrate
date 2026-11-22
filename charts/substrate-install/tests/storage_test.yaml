@@ -204,11 +204,11 @@ tests:
           path: metadata.annotations["argocd.argoproj.io/sync-options"]
           pattern: "Prune=false"
 
-  - it: renders no namespace when no ExternalSecret is used
+  - it: renders the namespace whatever the storage profile is
     template: templates/namespace.yaml
     asserts:
-      - hasDocuments:
-          count: 0
+      - isKind:
+          of: Namespace
 
   - it: accepts a snapshot location without a trailing slash
     template: templates/configmap.yaml

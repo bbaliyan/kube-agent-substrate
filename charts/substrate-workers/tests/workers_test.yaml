@@ -14,7 +14,7 @@ tests:
           of: WorkerPool
       - matchRegex:
           path: spec.workerImage
-          pattern: "^ghcr.io/agent-substrate/substrate/ateworker-gvisor:v1\\.0\\.0@sha256:[a-f0-9]{64}$"
+          pattern: "^ghcr.io/agent-substrate/substrate/ateworker-gvisor:v1\\.0\\.1@sha256:[a-f0-9]{64}$"
       - equal:
           path: spec.sandboxClasses[0].name
           value: gvisor

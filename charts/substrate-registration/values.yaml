@@ -5,9 +5,7 @@ snapshotStorageLocation: objectstore://substrate-snapshots
 actors: []
 
 substrate:
-  # The release of the control plane. The registration image must be built for it. The image is pulled by digest.
-  version: v1.0.0
-  # The namespace of ate-api-server.
+  # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system
 
 image:

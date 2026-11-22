@@ -51,7 +51,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "controlPlaneNamespace": { "$ref": "#/definitions/name" },
+        "controlPlaneNamespace": { "type": "string", "enum": ["ate-system"] },
         "podMonitorLabels": { "$ref": "#/definitions/stringMap" },
         "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
         "components": {

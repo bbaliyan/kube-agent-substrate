@@ -14,6 +14,7 @@ image:
 # images and sandboxClasses. The install uses the gVisor class only.
 # Upstream guide: docs/guides/operator-install.md in agent-substrate/substrate.
 config:
+  # Must be ate-system. The upstream manifests name it literally, and ate-setup refuses another value.
   namespace: ate-system
   clusterSize: size0
   rolloutTimeout: 5m0s
@@ -84,6 +85,11 @@ selinux:
 # It needs trust-manager with its default CA package. Empty changes nothing.
 egress:
   trustedCaPem: ""
+
+# Render the control plane namespace with the privileged Pod Security level. Set false if you create the
+# namespace yourself: Helm cannot adopt a namespace that already exists. Then you must label it
+# pod-security.kubernetes.io/enforce=privileged, or a cluster that enforces a stricter level rejects the pods.
+createNamespace: true
 
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.

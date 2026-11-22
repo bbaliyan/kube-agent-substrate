@@ -69,10 +69,10 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.initContainers[0].image
-          pattern: "substrate-install:v1.0.0@sha256:[a-f0-9]{64}$"
+          pattern: "substrate-install@sha256:[a-f0-9]{64}$"
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-install:v1.0.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-install@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       - equal:
           path: spec.template.spec.containers[0].command
           value: [ate-setup, deploy, ate-system, --config, /config/substrate-install.yaml]
@@ -199,7 +199,7 @@ tests:
           pattern: "^RELEASE-NAME-substrate-install-[a-f0-9]{10}$"
       - notEqual:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-a4c42b8c48
+          value: RELEASE-NAME-substrate-install-196014e6cb
 
   - it: gives the Job a new name when the tolerations change
     template: templates/job.yaml
@@ -211,7 +211,7 @@ tests:
     asserts:
       - notEqual:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-a4c42b8c48
+          value: RELEASE-NAME-substrate-install-196014e6cb
 
   - it: keeps the name when the inputs do not change
     template: templates/job.yaml
@@ -220,4 +220,4 @@ tests:
     asserts:
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-substrate-install-a4c42b8c48
+          value: RELEASE-NAME-substrate-install-196014e6cb

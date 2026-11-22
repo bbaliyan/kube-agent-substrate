@@ -17,7 +17,7 @@ app.kubernetes.io/part-of: substrate-idle-suspend
 {{- end -}}
 
 {{- define "substrate-idle-suspend.image" -}}
-{{ .Values.image.repository }}:{{ .Values.substrate.version }}@{{ .Values.image.digest }}
+{{ .Values.image.repository }}@{{ .Values.image.digest }}
 {{- end -}}
 
 {{- /* One line for each actor: atespace/name. */ -}}

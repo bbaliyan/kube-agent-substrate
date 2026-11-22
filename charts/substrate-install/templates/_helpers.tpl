@@ -17,7 +17,7 @@ app.kubernetes.io/part-of: substrate-install
 {{- end -}}
 
 {{- define "substrate-install.image" -}}
-{{ .Values.image.repository }}:{{ .Values.substrate.version }}@{{ .Values.image.digest }}
+{{ .Values.image.repository }}@{{ .Values.image.digest }}
 {{- end -}}
 
 {{- /* The snapshot location. A value in config.storage must stay inside the bucket of the profile. */ -}}

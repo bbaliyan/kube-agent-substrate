@@ -99,7 +99,7 @@ tests:
     asserts:
       - equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
-          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration:v1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
       - equal:
           path: spec.jobTemplate.spec.template.spec.volumes[2].projected.sources[0].serviceAccountToken.audience
           value: api.ate-system.svc
@@ -230,3 +230,11 @@ tests:
       idelMinutes: 5
     asserts:
       - failedTemplate: {}
+
+  - it: rejects substrate.version, which the digest-only image reference replaced
+    template: templates/cronjob.yaml
+    set:
+      substrate.version: v1.0.0
+    asserts:
+      - failedTemplate:
+          errorPattern: "version"

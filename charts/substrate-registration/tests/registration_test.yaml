@@ -48,7 +48,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration:v1.0.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          value: ghcr.io/bbaliyan/kube-agent-substrate/substrate-registration@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
       - equal:
           path: spec.template.spec.volumes[2].projected.sources[0].serviceAccountToken.audience
           value: api.ate-system.svc
@@ -122,3 +122,11 @@ tests:
         documentSelector:
           path: kind
           value: Role
+
+  - it: rejects substrate.version, which the digest-only image reference replaced
+    template: templates/job.yaml
+    set:
+      substrate.version: v1.0.0
+    asserts:
+      - failedTemplate:
+          errorPattern: "version"

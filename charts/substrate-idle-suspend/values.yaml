@@ -61,8 +61,6 @@ queries:
   cpu: 'sum(rate(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}[@WINDOW@]))'
 
 substrate:
-  # The release of the control plane. The image is tagged with the same version.
-  version: v1.0.0
   # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system
 

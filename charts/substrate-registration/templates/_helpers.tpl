@@ -17,7 +17,7 @@ app.kubernetes.io/part-of: substrate-registration
 {{- end -}}
 
 {{- define "substrate-registration.image" -}}
-{{ .Values.image.repository }}:{{ .Values.substrate.version }}@{{ .Values.image.digest }}
+{{ .Values.image.repository }}@{{ .Values.image.digest }}
 {{- end -}}
 
 {{- /* The contract with the substrate-actor chart: the template name that chart renders for the same values. The Job refuses to run on a ConfigMap that holds another name, so it never registers stale data. Keep this equal to "substrate-actor.templateName"; make test-contract fails if it drifts. */ -}}

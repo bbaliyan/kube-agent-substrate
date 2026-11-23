@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Suspends running actors that show no activity for the idle time.
 #
-# Why a script: Agent Substrate v1.0.0 has no idle policy. Suspend is an API call that only
+# Why a script: Agent Substrate v1.0.1 has no idle policy. Suspend is an API call that only
 # `kubectl ate` makes, and the decision joins the actor state of the control plane with the
 # signals in Prometheus. No declarative resource does either. Delete this chart when upstream
 # ships its own policy (agent-substrate/substrate issues 424 and 483).

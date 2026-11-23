@@ -260,7 +260,7 @@ Set `observability.enabled` to `true` to render a Prometheus Operator `PodMonito
 
 - Set `observability.podMonitorLabels` to the labels that your Prometheus selects.
 - The PodMonitors select the control plane, not the pool. Turn observability on in one release only.
-- Upstream v1.0.0 ships no dashboard. The dashboard ConfigMaps carry the label `grafana_dashboard: "1"`. Change the label name with `observability.dashboardLabel`.
+- Upstream v1.0.1 ships no dashboard. The dashboard ConfigMaps carry the label `grafana_dashboard: "1"`. Change the label name with `observability.dashboardLabel`.
 
 ## Define actors
 
@@ -343,13 +343,13 @@ RBAC cannot name a pod that changes on every rollout, so the Role covers every p
 
 ## Suspend idle actors
 
-Substrate v1.0.0 never suspends an idle actor. The `substrate-idle-suspend` chart runs a CronJob that does it for the actors you list. The CronJob uses the registration image. You can delete the chart when upstream ships its own idle policy.
+Substrate v1.0.1 never suspends an idle actor. The `substrate-idle-suspend` chart runs a CronJob that does it for the actors you list. The CronJob uses the registration image. You can delete the chart when upstream ships its own idle policy.
 
 Warnings:
 
 - An actor that answers at once and keeps working in the background can look idle. Set `idleMinutes` longer than its longest background task.
 - A request that is younger than one scrape interval is not in the data yet. Keep `idleMinutes` well above the scrape interval.
-- Upstream v1.0.0 documents no drain of a running request on suspend. A suspend at that moment can cut the request.
+- Upstream v1.0.1 documents no drain of a running request on suspend. A suspend at that moment can cut the request.
 
 To install:
 
@@ -444,12 +444,17 @@ Renovate does not change the worker image of `substrate-workers`. That image is 
 
 ### Move a cluster to a release
 
+0. If an actor is running and its work matters, suspend it (see below).
 1. Set `substrate.version` in `substrate-install` to the new release.
 2. Set `image.tag` and `image.digest` in `substrate-workers` to the worker image of the new release.
 3. Set `image.digest` of the install and registration images to an image built for that release.
 4. Run `helm upgrade` for each chart, in the order of the quick start.
 
-The inputs of the install Job change, so a new Job runs. The new release rolls the worker pods, and an actor that ran on one of them crashes. The registration Job reverts that actor to its last snapshot, so the actor keeps its identity and its volumes. Work since that snapshot is lost. Do not change `postgres.storage` on an installed cluster.
+The inputs of the install Job change, so a new Job runs. The new release rolls the worker pods. Upstream gives actors 30 minutes after SIGTERM, and then an actor that is still running crashes.
+
+To lose no work, run step 0 first. If an actor is running, suspend it with a synchronous snapshot: `kubectl ate suspend actor <name> -a <atespace> --mode=sync`. A suspended actor does not crash on the roll.
+
+If an actor crashes, the registration Job reverts it to its last snapshot. The actor keeps its identity and its volumes. Work since that snapshot is lost. Do not change `postgres.storage` on an installed cluster.
 
 ## Checks
 
@@ -491,13 +496,13 @@ Each workaround, the upstream issue behind it, and what to remove when the issue
 
 | Workaround | Why | Upstream issue | Remove when fixed |
 |---|---|---|---|
-| The install Job, its image and its patches | Upstream installs with `ate-setup` and ships no Helm chart | #3158, #3170, #3686, #3240 (not verified) | The Job and the install image |
+| The install Job, its image and its patches | Upstream installs with `ate-setup` and ships no Helm chart | #79 | The Job and the install image |
 | Patch `10-atelet-no-credential-provider` | `atelet` expects a credential provider for images on the node | #2669, #3667 | The patch |
 | Patch `20-storage-profile` | The default backend is GCS, and the settings repeat in each container | #3668, #2378 | The patch |
 | Placeholders for `gcp.projectID` and `storage.transferGSAName`, and `context` | `ate-setup` treats a cluster that is not kind as GCS | #3651 (not verified) | The placeholders |
 | Patch `25-atelet-selinux` and the worker admission policy | The pods run as `container_t` and cannot write `/var/lib/ate` | #3597 | Both `selinux` switches |
 | Patch `30-postgres-sizing` and the `patch-postgres` step | Upstream hardcodes the Postgres sizing | #3167, #3168 | The patch, the step and the `postgres` values |
-| Patch `26-egress-trusted-ca` and the trust-manager Bundle | The egress gateway trusts the public roots only | none known | The patch, the Bundle and `egress.trustedCaPem` |
+| Patch `26-egress-trusted-ca` and the trust-manager Bundle | The egress gateway reads one fixed CA file, so it trusts the public roots only | #2684, #3648 | The patch, the Bundle and `egress.trustedCaPem` |
 | The stub `PodMonitoring` CRD | The manifests hold a `PodMonitoring` object, and `ate-setup` stops without the CRD | #2589 | The stub |
 | PodMonitors in `substrate-workers` | Upstream ships only the GKE `PodMonitoring` kind | #2589 | The PodMonitors |
 | gVisor class only | microVM assets need a cloud CLI outside kind | none known | `sandboxClasses: gvisor` in the chart |
@@ -509,7 +514,7 @@ Each workaround, the upstream issue behind it, and what to remove when the issue
 | The Job is a bootstrap owner and passes its own token | `kubectl ate` falls back to the shared `ate-client` account | none known | The bootstrap owner entry |
 | The Role covers every pod in `ate-system` | Port-forward RBAC cannot name a pod | none known | The Role |
 | `--preview` in the registration Job | Each template names a snapshot location, which is a preview feature | none known | The flag |
-| The `substrate-idle-suspend` chart | Substrate v1.0.0 suspends no idle actor | #424, #483 (not verified) | The chart, and `curl` in the registration image |
+| The `substrate-idle-suspend` chart | Substrate v1.0.1 suspends no idle actor | #424, #483 (not verified) | The chart, and `curl` in the registration image |
 | The `examples/onprem/` values and the cluster requirements page | Upstream ships no profile for self-managed clusters | #1782 (not verified) | The examples |
 | RustFS with large multipart uploads, verified with one multipart snapshot only | Large sparse uploads can fail | #3921 (not verified) | The note, once a check covers 64 to 128 MiB and parallel uploads |
 

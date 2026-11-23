@@ -21,7 +21,7 @@ export REQUIRE_SIGNOFF := 0
 
 .PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
-test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-examples commit-messages
+test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-template-fields test-examples commit-messages
 
 test-fast: secrets
 
@@ -57,6 +57,19 @@ test-idle-suspend:
 	bash charts/substrate-idle-suspend/tests/idle_suspend_test.sh
 
 # The registration chart must plan the template names and egress hashes that the substrate-actor chart renders.
+# The template name hashes the fields that make the template, listed in the pick of the helper. A field that is not in
+# the list can never change the name. Each field of an actor in the schema must be in the list or be one of the fields
+# below that are not part of the template, and the two charts must list the same fields.
+test-template-fields:
+	set -e; \
+	listed() { sed -n 's/.*pick .actor \(.*\) -}}$$/\1/p' "$$1" | tr -d '"' | tr ' ' '\n' | sort; }; \
+	test -n "$$(listed charts/substrate-actor/templates/_helpers.tpl)"; \
+	test "$$(listed charts/substrate-actor/templates/_helpers.tpl)" = "$$(listed charts/substrate-registration/templates/_helpers.tpl)" || { echo 'the two charts hash different fields'; exit 1; }; \
+	for field in $$(jq -r '.definitions.actor.properties|keys[]' charts/substrate-actor/values.schema.json); do \
+	  case "$$field" in egress|warm) continue ;; esac; \
+	  listed charts/substrate-actor/templates/_helpers.tpl | grep -qx "$$field" || { echo "actor field $$field is neither in the template name hash nor in the list of fields that are not part of the template (Makefile)"; exit 1; }; \
+	done
+
 test-contract:
 	for profile in aws onprem; do \
 	  actor=$$(helm template x charts/substrate-actor -f charts/substrate-actor/ci/$$profile-values.yaml | sed -n 's/^  template-name: //p;s/^  egress-hash: //p' | paste -sd' ' -); \

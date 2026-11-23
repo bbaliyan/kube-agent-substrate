@@ -7,7 +7,7 @@ substrate.actor: {{ .actor.name }}
 
 {{- /* An ActorTemplate is immutable, so its name carries a hash of what it holds: the actor values without the egress rules, and the snapshot location. The substrate-registration chart builds the same name from the same values. */ -}}
 {{- define "substrate-actor.templateName" -}}
-{{- $actor := omit .actor "egress" "warm" -}}
+{{- $actor := pick .actor "name" "atespace" "image" "command" "args" "env" "workerSelector" "resources" "wakeupProbe" "egressTrustBundle" -}}
 {{- if not .actor.egressTrustBundle }}{{- $actor = omit $actor "egressTrustBundle" -}}{{- end -}}
 {{- $inputs := dict "actor" $actor "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
 {{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}

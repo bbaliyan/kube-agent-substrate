@@ -22,7 +22,7 @@ app.kubernetes.io/part-of: substrate-registration
 
 {{- /* The contract with the substrate-actor chart: the template name that chart renders for the same values. The Job refuses to run on a ConfigMap that holds another name, so it never registers stale data. Keep this equal to "substrate-actor.templateName"; make test-contract fails if it drifts. */ -}}
 {{- define "substrate-registration.templateName" -}}
-{{- $actor := omit .actor "egress" "warm" -}}
+{{- $actor := pick .actor "name" "atespace" "image" "command" "args" "env" "workerSelector" "resources" "wakeupProbe" "egressTrustBundle" -}}
 {{- if not .actor.egressTrustBundle }}{{- $actor = omit $actor "egressTrustBundle" -}}{{- end -}}
 {{- $inputs := dict "actor" $actor "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
 {{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}

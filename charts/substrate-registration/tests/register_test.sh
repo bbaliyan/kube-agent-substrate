@@ -49,6 +49,11 @@ case "$verb $kind" in
     echo "update actor $name $5" >>"$s/calls"
     if [ -e "$s/refuse-update" ]; then echo "rpc error: code = FailedPrecondition desc = snapshot location differs" >&2; exit 1; fi
     read -r _ st <"$s/actors/$name"; echo "$5 $st" >"$s/actors/$name" ;;
+  "revert actor")
+    echo "revert actor $name" >>"$s/calls"
+    if [ -e "$s/refuse-revert" ]; then echo "rpc error: code = FailedPrecondition desc = no snapshot to revert to" >&2; exit 1; fi
+    if [ -e "$s/fail-revert" ]; then echo "rpc error: code = Unavailable desc = control plane busy" >&2; exit 1; fi
+    read -r t _ <"$s/actors/$name"; echo "$t ACTOR_STATE_SUSPENDED" >"$s/actors/$name" ;;
   "delete actor") echo "delete actor $name" >>"$s/calls"; rm -f "$s/actors/$name" "$s/policies/$name" ;;
   "get egress-policy") [ -e "$s/policies/$name" ] && jq '{metadata:{uid:"u1",version:"3"},rules:.rules}' "$s/policies/$name" || true ;;
   "create egress-policy") echo "create egress-policy $name" >>"$s/calls"; cp "$5" "$s/policies/$name" ;;
@@ -140,13 +145,47 @@ rm "$work/state/refuse-update"
 configure "$t2" two
 echo "web-$t1 ACTOR_STATE_CRASHED" >"$work/state/actors/web"
 pass "crashed swap"
-expect_calls "create actor-template web-$t2
+expect_calls "revert actor web
+create actor-template web-$t2
+update actor web web-$t2
+delete actor-template web-$t1
+" "a crashed actor with an old template is reverted, and then moves in place"
+
+echo "web-$t2 ACTOR_STATE_CRASHED" >"$work/state/actors/web"
+pass "crashed, template current"
+expect_calls "revert actor web
+" "a crashed actor with the current template is reverted and keeps its identity"
+
+touch "$work/state/refuse-revert"
+echo "web-$t2 ACTOR_STATE_CRASHED" >"$work/state/actors/web"
+pass "crashed, no snapshot"
+expect_calls "revert actor web
 delete actor web
 create actor web web-$t2
 create egress-policy web
-delete actor-template web-$t1
-" "a crashed actor is deleted and created again"
+" "a crashed actor that cannot be reverted is deleted and created again"
 
+configure "$t1" two
+echo "web-$t2 ACTOR_STATE_CRASHED" >"$work/state/actors/web"
+pass "crashed, no snapshot, old template"
+expect_calls "revert actor web
+create actor-template web-$t1
+delete actor web
+create actor web web-$t1
+create egress-policy web
+delete actor-template web-$t2
+" "a crashed actor with an old template that cannot be reverted is deleted and created again"
+rm "$work/state/refuse-revert"
+
+touch "$work/state/fail-revert"
+echo "web-$t1 ACTOR_STATE_CRASHED" >"$work/state/actors/web"
+if run; then echo "FAIL: a revert error other than FailedPrecondition did not fail the Job" >&2; exit 1; fi
+expect_calls "revert actor web
+" "a revert that fails for another reason fails the Job and deletes nothing"
+rm "$work/state/fail-revert"
+
+configure "$t2" two
+rm -f "$work/state/templates"/* && touch "$work/state/templates/web-$t2"
 echo "web-$t2 ACTOR_STATE_DELETING" >"$work/state/actors/web"
 pass "deleting"
 expect_calls "delete actor web

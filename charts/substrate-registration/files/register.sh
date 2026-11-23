@@ -196,6 +196,27 @@ swap_template() {
   create_actor "$actor" "$atespace" "$template"
 }
 
+# Returns a crashed actor to its last snapshot. It returns 1 when the server refuses with
+# FailedPrecondition, for example when the actor has no snapshot. The caller then recreates the actor.
+revert_actor() {
+  local actor="$1" atespace="$2" out
+  if out=$(ate revert actor "$actor" -a "$atespace" 2>&1); then
+    log "Actor $atespace/$actor had crashed. Reverted it to its last snapshot."
+    return 0
+  fi
+  case "$out" in
+    *FailedPrecondition*)
+      log "The server refused to revert $atespace/$actor: $out"
+      return 1
+      ;;
+    *)
+      printf '%s
+' "$out" >&2
+      exit 1
+      ;;
+  esac
+}
+
 reconcile() {
   local actor="$1" atespace="$2" template="$3" egress_hash="$4" current state
   wait_until "ConfigMap of actor $actor holds $template and $egress_hash" actor_data_current "$actor" "$template" "$egress_hash"
@@ -206,6 +227,19 @@ reconcile() {
   else
     current=$(jq -r '.actorTemplate.name // ""' <<<"$FETCHED")
     state=$(jq -r '.status.state // ""' <<<"$FETCHED")
+    if [ "$state" = "ACTOR_STATE_CRASHED" ]; then
+      # A crash loses the worker of the actor, as a roll of the worker pods does. Nothing else repairs it,
+      # because the template can be current. Revert is the repair that upstream gives: the actor keeps its
+      # identity, its volumes and its egress policy, and returns to its last snapshot.
+      if revert_actor "$actor" "$atespace"; then
+        state="ACTOR_STATE_SUSPENDED"
+      elif [ "$current" = "$template" ]; then
+        log "Delete actor $atespace/$actor and create it again from $template. Its state is lost."
+        ate delete actor "$actor" -a "$atespace"
+        create_actor "$actor" "$atespace" "$template"
+        state="ACTOR_STATE_SUSPENDED"
+      fi
+    fi
     if [ "$state" = "ACTOR_STATE_DELETING" ]; then
       # An earlier delete did not finish. Run it again, which is safe.
       log "Actor $atespace/$actor is deleting. Run the delete again."

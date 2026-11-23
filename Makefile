@@ -19,7 +19,7 @@ REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
+.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-template-fields secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
 test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-template-fields test-examples commit-messages
 
@@ -65,7 +65,8 @@ test-template-fields:
 	listed() { sed -n 's/.*pick .actor \(.*\) -}}$$/\1/p' "$$1" | tr -d '"' | tr ' ' '\n' | sort; }; \
 	test -n "$$(listed charts/substrate-actor/templates/_helpers.tpl)"; \
 	test "$$(listed charts/substrate-actor/templates/_helpers.tpl)" = "$$(listed charts/substrate-registration/templates/_helpers.tpl)" || { echo 'the two charts hash different fields'; exit 1; }; \
-	for field in $$(jq -r '.definitions.actor.properties|keys[]' charts/substrate-actor/values.schema.json); do \
+	fields=$$(jq -r '.definitions.actor.properties|keys[]' charts/substrate-actor/values.schema.json); test -n "$$fields"; \
+	for field in $$fields; do \
 	  case "$$field" in egress|warm) continue ;; esac; \
 	  listed charts/substrate-actor/templates/_helpers.tpl | grep -qx "$$field" || { echo "actor field $$field is neither in the template name hash nor in the list of fields that are not part of the template (Makefile)"; exit 1; }; \
 	done

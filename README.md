@@ -329,7 +329,7 @@ Then install the chart with the same values file as the actor release, and set `
 
 A webhook sender gives up after about 10 seconds, and the first start of an actor can take longer. A warm actor has started before the first request, so the router answers inside its park window. The actor stays running until something suspends it. Do not list a warm actor in `substrate-idle-suspend`, or set `idleMinutes` longer than its quiet time. The Job resumes it again on the next sync.
 
-A template is immutable, so its name carries a hash of the actor values and the snapshot location. A change to the image, command, environment, resources, worker selector or probe gives a new template. A change to the egress rules does not: the policy changes in place. `make test-contract` fails if the two charts compute different names.
+A template is immutable, so its name carries a hash of the actor fields that make the template and the snapshot location. `warm` and `egress` are not part of it. A change to the image, command, environment, resources, worker selector or probe gives a new template. A change to the egress rules does not: the policy changes in place. `make test-contract` fails if the two charts compute different names.
 
 If an actor was busy, suspend it and sync again. The default values set Argo CD hook annotations, so Argo CD runs the Job on every sync. The Kubernetes TTL controller deletes a finished Job after `ttlSecondsAfterFinished` (default 86400 seconds).
 

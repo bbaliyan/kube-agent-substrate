@@ -54,6 +54,9 @@ case "$verb $kind" in
     if [ -e "$s/refuse-revert" ]; then echo "rpc error: code = FailedPrecondition desc = no snapshot to revert to" >&2; exit 1; fi
     if [ -e "$s/fail-revert" ]; then echo "rpc error: code = Unavailable desc = control plane busy" >&2; exit 1; fi
     read -r t _ <"$s/actors/$name"; echo "$t ACTOR_STATE_SUSPENDED" >"$s/actors/$name" ;;
+  "resume actor")
+    echo "resume actor $name" >>"$s/calls"
+    read -r t _ <"$s/actors/$name"; echo "$t ACTOR_STATE_RUNNING" >"$s/actors/$name" ;;
   "delete actor") echo "delete actor $name" >>"$s/calls"; rm -f "$s/actors/$name" "$s/policies/$name" ;;
   "get egress-policy") [ -e "$s/policies/$name" ] && jq '{metadata:{uid:"u1",version:"3"},rules:.rules}' "$s/policies/$name" || true ;;
   "create egress-policy") echo "create egress-policy $name" >>"$s/calls"; cp "$5" "$s/policies/$name" ;;
@@ -200,6 +203,29 @@ if run; then
   exit 1
 fi
 echo "ok: the script refuses a ConfigMap that does not hold the planned template"
+
+# A warm actor is resumed when it is suspended, and left alone when it runs.
+configure "$t1" two
+printf 'web apps web-%s egress-%s warm
+' "$t1" two >"$work/plan"
+rm -f "$work/state/actors/web" "$work/state/policies/web" "$work/state/templates"/*
+pass "warm, new"
+expect_calls "create actor-template web-$t1
+create actor web web-$t1
+create egress-policy web
+resume actor web
+" "a new warm actor is resumed after it is created"
+pass "warm, running"
+expect_calls "" "a warm actor that runs is left alone"
+echo "web-$t1 ACTOR_STATE_SUSPENDED" >"$work/state/actors/web"
+pass "warm, suspended"
+expect_calls "resume actor web
+" "a warm actor that was suspended is resumed"
+printf 'web apps web-%s egress-%s cold
+' "$t1" two >"$work/plan"
+echo "web-$t1 ACTOR_STATE_SUSPENDED" >"$work/state/actors/web"
+pass "cold, suspended"
+expect_calls "" "a cold actor that is suspended stays suspended"
 
 long=$(printf 'a%.0s' {1..60})
 mkdir -p "$work/actors/$long"

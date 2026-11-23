@@ -319,7 +319,7 @@ Then install the chart with the same values file as the actor release, and set `
 3. It creates the atespace, the template and the actor if they are missing.
 4. If an actor uses an older template and is suspended, it moves the actor to the new template. The actor keeps its identity, and its state restarts from the new template.
 5. If the server refuses that move, it deletes the actor and creates it again. The state is lost, and the log says so.
-6. If an actor has crashed, it deletes the actor and creates it again. This holds for the current template too.
+6. If an actor has crashed, it reverts the actor to its last snapshot, whatever the template. If the server refuses the revert, it deletes the actor and creates it again. The state is lost, and the log says so.
 7. If an actor uses an older template and is in any other state, the actor is busy. The Job leaves it.
 8. It updates the egress policy in place.
 9. It deletes the older templates of the actor.
@@ -449,7 +449,7 @@ Renovate does not change the worker image of `substrate-workers`. That image is 
 3. Set `image.digest` of the install and registration images to an image built for that release.
 4. Run `helm upgrade` for each chart, in the order of the quick start.
 
-The inputs of the install Job change, so a new Job runs. The new release rolls the worker pods, and an actor that ran on one of them crashes. The registration Job creates that actor again, and its state is lost. Do not change `postgres.storage` on an installed cluster.
+The inputs of the install Job change, so a new Job runs. The new release rolls the worker pods, and an actor that ran on one of them crashes. The registration Job reverts that actor to its last snapshot, so the actor keeps its identity and its volumes. Work since that snapshot is lost. Do not change `postgres.storage` on an installed cluster.
 
 ## Checks
 

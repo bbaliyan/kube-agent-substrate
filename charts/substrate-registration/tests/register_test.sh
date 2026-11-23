@@ -147,6 +147,13 @@ create egress-policy web
 delete actor-template web-$t1
 " "a crashed actor is deleted and created again"
 
+echo "web-$t2 ACTOR_STATE_CRASHED" >"$work/state/actors/web"
+pass "crashed, template current"
+expect_calls "delete actor web
+create actor web web-$t2
+create egress-policy web
+" "a crashed actor with the current template is deleted and created again"
+
 echo "web-$t2 ACTOR_STATE_DELETING" >"$work/state/actors/web"
 pass "deleting"
 expect_calls "delete actor web

@@ -211,6 +211,12 @@ reconcile() {
       log "Actor $atespace/$actor is deleting. Run the delete again."
       ate delete actor "$actor" -a "$atespace"
       create_actor "$actor" "$atespace" "$template"
+    elif [ "$state" = "ACTOR_STATE_CRASHED" ] && [ "$current" = "$template" ]; then
+      # A crash loses the worker of the actor, as a roll of the worker pods does. The template is
+      # current, so nothing else would repair it.
+      log "Actor $atespace/$actor crashed. Delete it and create it again from $template. Its state is lost."
+      ate delete actor "$actor" -a "$atespace"
+      create_actor "$actor" "$atespace" "$template"
     elif [ "$current" != "$template" ]; then
       case "$state" in
         ACTOR_STATE_SUSPENDED | ACTOR_STATE_CRASHED)

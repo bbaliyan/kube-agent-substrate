@@ -86,7 +86,7 @@ contexts:
 current-context: {{ include "substrate-install.contextName" . }}
 {{- end -}}
 
-{{- /* The storage patch: a Component that sets the object store backend on the two containers that read it, the plugin sidecar of ate-api-server and the plugin sidecar of atelet. The atelet container is left alone: in v1.0.0 it exits if ATE_STORAGE_BACKEND is set on it. The test operations stop the install if upstream moves the sidecar. */ -}}
+{{- /* The storage patch: a Component that sets the object store backend on the two containers that read it, the plugin sidecar of ate-api-server and the plugin sidecar of atelet. The atelet container is left alone: in v1.0.1 it exits if ATE_STORAGE_BACKEND is set on it. The test operations stop the install if upstream moves the sidecar. */ -}}
 {{- define "substrate-install.storagePatch" -}}
 {{- $s := .Values.storage -}}
 {{- if not (has $s.profile (list "aws" "s3-compatible")) -}}

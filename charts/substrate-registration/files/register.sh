@@ -7,7 +7,7 @@
 # repeat run on unchanged input makes no change.
 #
 # Input: /scripts/plan holds one line for each actor: name, atespace, template
-# name and egress hash. /actors/<name>/ holds template-name, egress-hash,
+# name, egress hash and warm or cold. /actors/<name>/ holds template-name, egress-hash,
 # template.yaml and, if the actor has egress rules, egress-policy.json.
 # The template name carries a hash of the template. A different name on a live
 # actor means the actor must move to a new template. The egress policy has no
@@ -217,8 +217,19 @@ revert_actor() {
   esac
 }
 
+# Resumes a suspended actor, so that its first request does not wait for a start. A webhook sender
+# gives up after about 10 seconds, and the first start of an actor can take longer than that.
+warm_actor() {
+  local actor="$1" atespace="$2"
+  fetch get actor "$actor" -a "$atespace"
+  if [ "$(jq -r '.status.state // ""' <<<"$FETCHED")" = "ACTOR_STATE_SUSPENDED" ]; then
+    log "Resume warm actor $atespace/$actor"
+    ate resume actor "$actor" -a "$atespace"
+  fi
+}
+
 reconcile() {
-  local actor="$1" atespace="$2" template="$3" egress_hash="$4" current state
+  local actor="$1" atespace="$2" template="$3" egress_hash="$4" warm="${5:-cold}" current state
   wait_until "ConfigMap of actor $actor holds $template and $egress_hash" actor_data_current "$actor" "$template" "$egress_hash"
   ensure_atespace "$atespace"
 
@@ -261,13 +272,14 @@ reconcile() {
   fi
   reconcile_egress_policy "$actor" "$atespace"
   delete_old_templates "$actor" "$atespace" "$template"
+  if [ "$warm" = "warm" ]; then warm_actor "$actor" "$atespace"; fi
   log "Actor $atespace/$actor is current"
 }
 
 wait_until "ate-api-server in $NS is not available" api_available
-while read -r -u 3 actor atespace template egress_hash; do
+while read -r -u 3 actor atespace template egress_hash warm; do
   [ -n "$actor" ] || continue
-  reconcile "$actor" "$atespace" "$template" "$egress_hash"
+  reconcile "$actor" "$atespace" "$template" "$egress_hash" "${warm:-cold}"
 done 3<"$PLAN"
 
 # A busy actor keeps its old template. The Job fails so the drift is visible in Argo CD.

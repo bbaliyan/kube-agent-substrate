@@ -5,9 +5,9 @@ app.kubernetes.io/part-of: substrate-actor
 substrate.actor: {{ .actor.name }}
 {{- end -}}
 
-{{- /* An ActorTemplate is immutable, so its name carries a hash of what it holds: the actor values without the egress rules, and the snapshot location. The substrate-registration chart builds the same name from the same values. */ -}}
+{{- /* An ActorTemplate is immutable, so its name carries a hash of what it holds: the fields of the actor that make the template (the pick below), and the snapshot location. A field that is not in the pick, such as warm or egress, never changes the name. The substrate-registration chart builds the same name from the same values. */ -}}
 {{- define "substrate-actor.templateName" -}}
-{{- $actor := omit .actor "egress" -}}
+{{- $actor := pick .actor "name" "atespace" "image" "command" "args" "env" "workerSelector" "resources" "wakeupProbe" "egressTrustBundle" -}}
 {{- if not .actor.egressTrustBundle }}{{- $actor = omit $actor "egressTrustBundle" -}}{{- end -}}
 {{- $inputs := dict "actor" $actor "snapshotStorageLocation" .root.Values.snapshotStorageLocation -}}
 {{- printf "%s-%s" (.actor.name | trunc 52 | trimSuffix "-") (toJson $inputs | sha256sum | trunc 10) -}}

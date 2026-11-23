@@ -43,21 +43,24 @@ tests:
           value: |
             pr-review reviews pr-review-8659c5a91c 29094721af cold
 
-  - it: plans a warm actor as warm
+  - it: plans a warm actor as warm, with the template name of the same actor that is not warm
     template: templates/configmap.yaml
     set:
+      snapshotStorageLocation: objectstore://example-snapshots
       actors:
         - name: pr-review
           atespace: reviews
           warm: true
           image: registry.example.com/agents/pr-review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          env:
+            LOG_LEVEL: debug
           resources:
             cpuMillicores: 2000
             memoryBytes: 4294967296
     asserts:
       - matchRegex:
           path: data.plan
-          pattern: '4f53cda18c warm'
+          pattern: 'pr-review-453ef36640 4f53cda18c warm'
 
   - it: runs the pinned image with the service account token as the credential
     template: templates/job.yaml

@@ -33,10 +33,10 @@ app.kubernetes.io/part-of: substrate-registration
 {{- toJson (default (list) .actor.egress) | sha256sum | trunc 10 -}}
 {{- end -}}
 
-{{- /* One line for each actor: name, atespace, the template name and the egress hash to register. */ -}}
+{{- /* One line for each actor: name, atespace, the template name, the egress hash to register, and warm or cold. */ -}}
 {{- define "substrate-registration.plan" -}}
 {{- range $actor := .Values.actors -}}
-{{ $actor.name }} {{ $actor.atespace }} {{ include "substrate-registration.templateName" (dict "root" $ "actor" $actor) }} {{ include "substrate-registration.egressHash" (dict "actor" $actor) }}
+{{ $actor.name }} {{ $actor.atespace }} {{ include "substrate-registration.templateName" (dict "root" $ "actor" $actor) }} {{ include "substrate-registration.egressHash" (dict "actor" $actor) }} {{ ternary "warm" "cold" (default false $actor.warm) }}
 {{ end -}}
 {{- end -}}
 

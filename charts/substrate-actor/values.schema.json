@@ -49,6 +49,7 @@
       "properties": {
         "name": { "$ref": "#/definitions/dnsLabel" },
         "atespace": { "$ref": "#/definitions/dnsLabel" },
+        "warm": { "type": "boolean" },
         "image": { "$ref": "#/definitions/digestImage" },
         "command": { "type": "array", "items": { "type": "string" } },
         "args": { "type": "array", "items": { "type": "string" } },

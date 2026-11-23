@@ -280,6 +280,7 @@ The chart renders one ConfigMap for each actor, with the ActorTemplate and the e
 | `wakeupProbe` | no | `path`, `port` and `timeoutSeconds` (default 30) |
 | `egress` | no | Rules with `protocol` (`http`, `https` or `tlsPassthrough`), `hostnames`, `ports` and an optional `credential` |
 | `egressTrustBundle` | no | Mounts the egress gateway CA (see below) |
+| `warm` | no | If `true`, the registration Job resumes the actor when it is suspended. Default `false`. See below. |
 
 `snapshotStorageLocation` is the snapshot location of every template. The default is `objectstore://substrate-snapshots`. The examples and the integration test use `s3://<bucket>/<prefix>`, and only that form is verified. `actors` defaults to an empty list.
 
@@ -323,7 +324,10 @@ Then install the chart with the same values file as the actor release, and set `
 7. If an actor uses an older template and is in any other state, the actor is busy. The Job leaves it.
 8. It updates the egress policy in place.
 9. It deletes the older templates of the actor.
-10. If an actor was busy, the Job fails and names the actor.
+10. If an actor has `warm: true` and is suspended, it resumes the actor.
+11. If an actor was busy, the Job fails and names the actor.
+
+A webhook sender gives up after about 10 seconds, and the first start of an actor can take longer. A warm actor has started before the first request, so the router answers inside its park window. The actor stays running until something suspends it. Do not list a warm actor in `substrate-idle-suspend`, or set `idleMinutes` longer than its quiet time. The Job resumes it again on the next sync.
 
 A template is immutable, so its name carries a hash of the actor values and the snapshot location. A change to the image, command, environment, resources, worker selector or probe gives a new template. A change to the egress rules does not: the policy changes in place. `make test-contract` fails if the two charts compute different names.
 

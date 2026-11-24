@@ -67,7 +67,7 @@ case "$query" in
   *'app="atelet"'*) signal=health-atelet ;;
   *atenet_router_route_duration*) signal=routed ;;
   *lifecycle_operation*) signal=resumed ;;
-  *envoy_cluster_upstream_rq_active*'app="atenet-egress"'*) signal=egress ;;
+  *envoy_http_downstream_rq_active*'app="atenet-egress"'*) signal=egress ;;
   *envoy_cluster_upstream_rq_active*) signal=inflight ;;
   *ate_actor_stats_cpu_time*) signal=cpu ;;
   *) echo "stub: unknown query $query" >&2; exit 2 ;;

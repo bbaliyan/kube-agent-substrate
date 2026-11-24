@@ -4,6 +4,14 @@
 snapshotStorageLocation: objectstore://substrate-snapshots
 actors: []
 
+# Roles to grant in an atespace. The Job is a bootstrap owner, so it can write the access policy. Each entry adds its
+# members to the binding of the role, and removes nobody. A member is a principal with the prefix `user:`.
+accessBindings: []
+#  - atespace: reviews
+#    role: editor
+#    members:
+#      - user:system:serviceaccount:pr-agent:substrate-idle-suspend
+
 substrate:
   # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system

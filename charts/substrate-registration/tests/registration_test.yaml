@@ -149,3 +149,53 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "version"
+
+  - it: lists each member of each access binding in the ConfigMap
+    template: templates/configmap.yaml
+    set:
+      accessBindings:
+        - atespace: reviews
+          role: editor
+          members:
+            - user:system:serviceaccount:agents:idle-suspend
+            - user:system:serviceaccount:agents:other
+        - atespace: ops
+          role: viewer
+          members:
+            - user:system:serviceaccount:agents:idle-suspend
+    asserts:
+      - equal:
+          path: data.bindings
+          value: |
+            reviews editor user:system:serviceaccount:agents:idle-suspend
+            reviews editor user:system:serviceaccount:agents:other
+            ops viewer user:system:serviceaccount:agents:idle-suspend
+
+  - it: rejects a member without the user prefix
+    template: templates/configmap.yaml
+    set:
+      accessBindings:
+        - atespace: reviews
+          role: editor
+          members: [system:serviceaccount:agents:idle-suspend]
+    asserts:
+      - failedTemplate:
+          errorPattern: "members"
+
+  - it: rejects the owner role, which would hand out full control from a bootstrap owner
+    template: templates/configmap.yaml
+    set:
+      accessBindings:
+        - atespace: reviews
+          role: owner
+          members: [user:system:serviceaccount:agents:idle-suspend]
+    asserts:
+      - failedTemplate:
+          errorPattern: "role"
+
+  - it: renders an empty bindings file when there are no access bindings
+    template: templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.bindings
+          value: ""

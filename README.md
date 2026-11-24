@@ -307,6 +307,7 @@ Then install the chart with the same values file as the actor release, and set `
 | `snapshotStorageLocation`, `actors` | as in `substrate-actor` | Must be the same as in the actor release |
 | `substrate.namespace` | `ate-system` | The namespace of `ate-api-server` |
 | `image.digest` | all zeros | Digest of the registration image. The all-zero digest never pulls. |
+| `accessBindings` | `[]` | Roles to grant. Each entry has `atespace`, `role` (`viewer` or `editor`) and `members`. The Job adds the members to the access policy of the atespace. It removes nobody, so a revoke is a manual `kubectl ate update access-policy`. A member has the prefix `user:`. |
 | `waitSeconds` | `900` | How long the Job waits for `ate-api-server` and for the actor ConfigMaps |
 | `backoffLimit`, `activeDeadlineSeconds` | `2`, `1800` | Retries and time limit of the Job |
 | `ttlSecondsAfterFinished` | `86400` | Time before a finished Job is deleted |
@@ -327,7 +328,7 @@ Then install the chart with the same values file as the actor release, and set `
 10. If an actor has `warm: true` and is suspended, it resumes the actor.
 11. If an actor was busy, the Job fails and names the actor.
 
-A webhook sender gives up after about 10 seconds, and the first start of an actor can take longer. A warm actor has started before the first request, so the router answers inside its park window. The actor stays running until something suspends it. Do not list a warm actor in `substrate-idle-suspend`, or set `idleMinutes` longer than its quiet time. The Job resumes it again on the next sync.
+A webhook sender gives up after about 10 seconds, and the first start of an actor can take longer. A warm actor has started before the first request, so the router answers inside its park window. The actor stays running until something suspends it. A warm actor can also be in `substrate-idle-suspend`. The Job resumes it on each sync, so the actor is running after a deploy, and it is suspended again after `idleMinutes` of quiet. The next sync resumes it again.
 
 A template is immutable, so its name carries a hash of the actor fields that make the template and the snapshot location. `warm` and `egress` are not part of it. A change to the image, command, environment, resources, worker selector or probe gives a new template. A change to the egress rules does not: the policy changes in place. `make test-contract` fails if the two charts compute different names.
 
@@ -362,11 +363,19 @@ To install:
 3. Set `actors`, `prometheus.url` and `image.digest`.
 4. Set `schedule` (default every 5 minutes) and `idleMinutes` (default 30).
 5. Install the chart.
-6. Write an access policy file with a binding of the `editor` role to the CronJob principal.
-7. If the atespace has no access policy, run `kubectl ate --preview create access-policy -a <atespace> -f <file>`.
-8. If the atespace already has a policy, add the binding to it and run `kubectl ate --preview update access-policy -a <atespace> -f <file>`.
+6. Add an `accessBindings` entry to the values of the `substrate-registration` release. It gives the CronJob principal the `editor` role in the atespace of the actor. The Job creates or updates the access policy on each run.
 
-The principal is `user:system:serviceaccount:<release namespace>:<service account>`. The service account name follows the same rule as the registration chart, with `substrate-idle-suspend`. Do not make this account a bootstrap owner.
+The principal is `user:system:serviceaccount:<release namespace>:<service account>`. For example:
+
+```yaml
+accessBindings:
+  - atespace: reviews
+    role: editor
+    members:
+      - user:system:serviceaccount:agents:substrate-idle-suspend
+```
+
+The service account name follows the same rule as the registration chart, with `substrate-idle-suspend`. Do not make this account a bootstrap owner.
 
 If Prometheus needs a bearer token, set `prometheus.bearerTokenSecret.name`. If it uses a private CA, set `prometheus.caSecret.name`.
 
@@ -515,9 +524,10 @@ Each workaround, the upstream issue behind it, and what to remove when the issue
 | The registration Job | Actors, templates and egress policies are not Kubernetes resources | none known | The registration chart |
 | A hash in the template name, and a compare of the live egress policy | A template has no metadata and cannot change | none known | The hash |
 | Move an actor only while it is suspended | The server refuses to move a running actor | none known | The busy-actor gate |
-| The Job is a bootstrap owner and passes its own token | `kubectl ate` falls back to the shared `ate-client` account | none known | The bootstrap owner entry |
+| The Job is a bootstrap owner and passes its own token. It also grants `viewer` and `editor` roles | `kubectl ate` falls back to the shared `ate-client` account, and the access policy has no declarative form | none known | The bootstrap owner entry, and the role list of the schema |
 | The Role covers every pod in `ate-system` | Port-forward RBAC cannot name a pod | none known | The Role |
 | `--preview` in the registration Job | Each template names a snapshot location, which is a preview feature | none known | The flag |
+| The access bindings of the registration Job | Substrate v1.0.1 has no declarative access policy | none known | The `accessBindings` value |
 | The `substrate-idle-suspend` chart | Substrate v1.0.1 suspends no idle actor | #424, #483 (not verified) | The chart, and `curl` in the registration image |
 | The `examples/onprem/` values and the cluster requirements page | Upstream ships no profile for self-managed clusters | #1782 (not verified) | The examples |
 | RustFS with large multipart uploads, verified with one multipart snapshot only | Large sparse uploads can fail | #3921 (not verified) | The note, once a check covers 64 to 128 MiB and parallel uploads |

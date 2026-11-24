@@ -12,3 +12,5 @@ data:
     {{- .Files.Get "files/register.sh" | nindent 4 }}
   plan: |
     {{- include "substrate-registration.plan" . | trim | nindent 4 }}
+  bindings: |
+    {{- include "substrate-registration.bindings" . | trim | nindent 4 }}

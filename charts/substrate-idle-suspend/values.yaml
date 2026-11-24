@@ -1,5 +1,6 @@
 # The actors to watch. Use the same atespace and name as in the substrate-actor chart.
-# The script fails when the list is empty, so a release without actors does nothing.
+# With no actors the chart renders only the PodMonitors (if podMonitors.enabled), so one release can own the scrape objects
+# of the control plane for all agents.
 actors: []
 #  - atespace: reviews
 #    name: pr-review

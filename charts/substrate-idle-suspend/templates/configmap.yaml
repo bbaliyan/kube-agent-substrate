@@ -1,3 +1,4 @@
+{{- if .Values.actors }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -36,3 +37,4 @@ data:
     {{- .Values.queries.egress | nindent 4 }}
   query.cpu: |
     {{- .Values.queries.cpu | nindent 4 }}
+{{- end }}

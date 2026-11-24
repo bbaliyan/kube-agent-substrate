@@ -58,7 +58,13 @@ case "$verb $kind" in
   "resume actor")
     echo "resume actor $name" >>"$s/calls"
     read -r t _ <"$s/actors/$name"; echo "$t ACTOR_STATE_RUNNING" >"$s/actors/$name" ;;
-  "delete actor") echo "delete actor $name" >>"$s/calls"; rm -f "$s/actors/$name" "$s/policies/$name" ;;
+  "delete actor") [ ! -e "$s/fail-delete" ] || { echo "rpc error: code = Unavailable desc = control plane busy" >&2; exit 1; }
+    [ -e "$s/actors/$name" ] || missing
+    echo "delete actor $name" >>"$s/calls"; rm -f "$s/actors/$name" "$s/policies/$name" ;;
+  "delete atespace") [ -e "$s/atespaces/$name" ] || missing
+    # An atespace with an actor or a template is not empty. The server answers FailedPrecondition.
+    if [ -n "$(ls -A "$s/actors" "$s/templates" | grep -v ':$' || true)" ]; then echo "rpc error: code = FailedPrecondition desc = atespace is not empty" >&2; exit 1; fi
+    echo "delete atespace $name" >>"$s/calls"; rm -f "$s/atespaces/$name" "$s/access/$name" ;;
   "get egress-policy") [ -e "$s/policies/$name" ] && jq '{metadata:{uid:"u1",version:"3"},rules:.rules}' "$s/policies/$name" || true ;;
   "create egress-policy") echo "create egress-policy $name" >>"$s/calls"; cp "$5" "$s/policies/$name" ;;
   "update egress-policy")
@@ -97,6 +103,11 @@ run() {
   : >"$work/state/calls"
   PATH="$work/bin:$PATH" STATE="$work/state" ACTORS_DIR="$work/actors" PLAN="$work/plan" BINDINGS="$work/bindings" \
     POLL_SECONDS=0 WAIT_SECONDS=1 bash "$here/../files/register.sh" >"$work/out" 2>&1
+}
+
+run_unregister() {
+  : >"$work/state/calls"
+  PATH="$work/bin:$PATH" STATE="$work/state" ACTORS_DIR="$work/actors" PLAN="$work/plan" BINDINGS="$work/bindings"     POLL_SECONDS=0 WAIT_SECONDS=1 bash "$here/../files/register.sh" unregister >"$work/out" 2>&1
 }
 
 pass() { run || { cat "$work/out"; echo "FAIL: $1 (the script failed)" >&2; exit 1; }; }
@@ -342,3 +353,48 @@ pass "binding, role without members"
 expect_calls "update access-policy bare
 " "a binding with no members list takes the member"
 check_access bare '.bindings[0].members == ["user:system:serviceaccount:pr-agent:substrate-idle-suspend"]' "the member is the only one of the binding"
+
+# Unregister: the actor, then its templates, then the atespace when it is empty. NotFound is success.
+configure "$t1" two
+rm -rf "$work/state"/{actors,templates,policies,access,atespaces}/*
+pass "unregister setup"
+: >"$work/state/calls"
+run_unregister || { cat "$work/out"; echo "FAIL: unregister failed" >&2; exit 1; }
+expect_calls "delete actor web
+delete actor-template web-$t1
+delete atespace apps
+" "unregister deletes the actor, then its template, then the empty atespace"
+[ ! -e "$work/state/atespaces/apps" ] || { echo "FAIL: the atespace is still there" >&2; exit 1; }
+
+run_unregister || { cat "$work/out"; echo "FAIL: a repeat of unregister failed" >&2; exit 1; }
+expect_calls "" "a repeat of unregister finds nothing and succeeds"
+
+# Two actors share an atespace: it is deleted once, after both actors.
+printf 'web apps web-%s egress-two
+web2 apps web2-%s egress-two
+' "$t1" "$t1" >"$work/plan"
+touch "$work/state/atespaces/apps" "$work/state/actors/web" "$work/state/actors/web2" "$work/state/templates/web-$t1" "$work/state/templates/web2-$t1"
+run_unregister || { cat "$work/out"; echo "FAIL: unregister of two actors failed" >&2; exit 1; }
+expect_calls "delete actor web
+delete actor-template web-$t1
+delete actor web2
+delete actor-template web2-$t1
+delete atespace apps
+" "two actors in one atespace are deleted before the atespace, which is deleted once"
+
+# Another agent still uses the atespace: the server answers FailedPrecondition and the script leaves it.
+printf 'web apps web-%s egress-two
+' "$t1" >"$work/plan"
+touch "$work/state/atespaces/apps" "$work/state/actors/web" "$work/state/templates/web-$t1" "$work/state/actors/other"
+run_unregister || { cat "$work/out"; echo "FAIL: a shared atespace failed the hook" >&2; exit 1; }
+expect_calls "delete actor web
+delete actor-template web-$t1
+" "an atespace that is not empty stays, and the hook still succeeds"
+grep -q "not empty" "$work/out"
+echo "ok: the hook says why the atespace stays"
+
+# Any other error fails the hook, so Argo CD does not delete the Application over live objects.
+touch "$work/state/fail-delete" "$work/state/actors/web"
+if run_unregister; then echo "FAIL: an unexpected error did not fail the hook" >&2; exit 1; fi
+expect_calls "" "an error other than NotFound and FailedPrecondition fails the hook"
+rm "$work/state/fail-delete"

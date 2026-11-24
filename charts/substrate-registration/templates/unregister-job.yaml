@@ -1,0 +1,71 @@
+{{- if .Values.unregister.enabled }}
+{{- $scripts := printf "%s-%s" (include "substrate-registration.fullname" .) (include "substrate-registration.hash" .) -}}
+# Runs before Argo CD deletes any resource of the Application, so the account, the role and the ConfigMap still exist.
+# A hook Job is not part of the sync, so no ttlSecondsAfterFinished: the delete policy removes it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "substrate-registration.fullname" . }}-unregister
+  labels:
+    {{- include "substrate-registration.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PreDelete
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "substrate-registration.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "substrate-registration.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: unregister
+          image: {{ include "substrate-registration.image" . }}
+          command: [bash, /scripts/register.sh, unregister]
+          env:
+            - {name: SUBSTRATE_NAMESPACE, value: {{ .Values.substrate.namespace | quote }}}
+            - {name: WAIT_SECONDS, value: {{ .Values.waitSeconds | quote }}}
+            - {name: TOKEN_FILE, value: /var/run/ate/token}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "substrate-registration.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: ate-api, mountPath: /var/run/ate, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        # The plan comes from the ConfigMap of this release, not from the substrate-actor chart, which Argo CD deletes in parallel.
+        - name: scripts
+          configMap:
+            name: {{ $scripts }}
+            defaultMode: 0555
+        - name: tmp
+          emptyDir: {}
+        - name: ate-api
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: api.{{ .Values.substrate.namespace }}.svc
+                  expirationSeconds: 3600
+                  path: token
+{{- end }}

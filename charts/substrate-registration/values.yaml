@@ -36,6 +36,16 @@ job:
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "1"
 
+# Removes the actors, the templates and the empty atespaces of this release when Argo CD deletes the Application.
+# It runs a PreDelete hook Job with the account of the registration Job. Off by default.
+# Access needed: deleting an atespace needs the owner role. Ask for it here, and the chart makes the Job an owner of each
+# atespace of its actors, in the access policy, so the hook does not depend on bootstrapOwners. The account must be a
+# bootstrap owner when it first registers the actor, as it must for any access policy write.
+# accessBindings still rejects the owner role: a user cannot hand it out.
+# The hook does not run for a delete that skips the finalizer, or outside Argo CD. Then delete by hand with `kubectl ate`.
+unregister:
+  enabled: false
+
 resources:
   requests:
     cpu: 50m

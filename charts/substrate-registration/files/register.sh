@@ -7,6 +7,7 @@
 # repeat run on unchanged input makes no change.
 #
 # /scripts/bindings holds one line for each member of an access binding: atespace, role and member.
+# With the argument "unregister" it removes them instead (see unregister below).
 # Input: /scripts/plan holds one line for each actor: name, atespace, template
 # name, egress hash and warm or cold. /actors/<name>/ holds template-name, egress-hash,
 # template.yaml and, if the actor has egress rules, egress-policy.json.
@@ -127,27 +128,35 @@ reconcile_egress_policy() {
   ate update egress-policy "$actor" -a "$atespace" -f "$WORK/egress-update.json"
 }
 
-# Deletes a template. Right after an actor moves away, the server can still be busy with the
-# old template and answers Aborted, so retry for a short time.
-delete_template() {
-  local name="$1" atespace="$2" out tries=0
-  until out=$(ate delete actor-template "$name" -a "$atespace" 2>&1); do
+# Deletes an object. NotFound counts as success, so a repeat is safe. Right after an actor moves
+# away, the server can still be busy with the object and answers Aborted, so retry for a short time.
+# It returns 3 when the server answers FailedPrecondition, and the caller decides what that means.
+delete_object() {
+  local out tries=0
+  until out=$(ate delete "$@" 2>&1); do
     case "$out" in
+      *NotFound*) return 0 ;;
+      *FailedPrecondition*)
+        log "The server refused the delete of $*: $out"
+        return 3
+        ;;
       *Aborted*) ;;
       *)
-        printf '%s
-' "$out" >&2
+        printf '%s\n' "$out" >&2
         exit 1
         ;;
     esac
     tries=$((tries + 1))
     if [ "$tries" -ge 20 ]; then
-      printf '%s
-' "$out" >&2
+      printf '%s\n' "$out" >&2
       exit 1
     fi
     sleep "$POLL_SECONDS"
   done
+}
+
+delete_template() {
+  delete_object actor-template "$1" -a "$2" || exit 1
 }
 
 # Deletes the older templates of this actor. Their names are the actor name,
@@ -321,6 +330,34 @@ reconcile_binding() {
   log "FAILED: the access policy of $atespace did not take $role for $member after 5 tries."
   exit 1
 }
+
+# Removes what the plan registered: each actor, its templates, and then each atespace that is empty.
+# It runs as the PreDelete hook, only when unregister.enabled is true. The atespace delete needs the
+# owner role, which the Job holds in each atespace (see the bindings). An atespace that another
+# agent still uses answers FailedPrecondition, and the script leaves it. Each step accepts NotFound.
+unregister() {
+  local actor atespace rest atespaces=" "
+  wait_until "ate-api-server in $NS is not available" api_available
+  while read -r -u 3 actor atespace rest; do
+    [ -n "$actor" ] || continue
+    log "Delete actor $atespace/$actor"
+    delete_object actor "$actor" -a "$atespace" || exit 1
+    delete_old_templates "$actor" "$atespace" ""
+    case "$atespaces" in *" $atespace "*) ;; *) atespaces="$atespaces$atespace " ;; esac
+  done 3<"$PLAN"
+  for atespace in $atespaces; do
+    log "Delete atespace $atespace"
+    if delete_object atespace "$atespace"; then :; else
+      log "Atespace $atespace is not empty. Another agent uses it, so it stays."
+    fi
+  done
+  log "Unregistration done."
+}
+
+if [ "${1:-}" = unregister ]; then
+  unregister
+  exit 0
+fi
 
 wait_until "ate-api-server in $NS is not available" api_available
 while read -r -u 3 actor atespace template egress_hash warm; do

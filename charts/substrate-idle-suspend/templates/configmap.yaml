@@ -18,6 +18,8 @@ data:
     QUERY_TIMEOUT={{ .Values.prometheus.timeoutSeconds }}
   query.health.envoy: |
     {{- .Values.queries.health.envoy | nindent 4 }}
+  query.health.egress: |
+    {{- .Values.queries.health.egress | nindent 4 }}
   query.health.router: |
     {{- .Values.queries.health.router | nindent 4 }}
   query.health.ateapi: |
@@ -30,5 +32,7 @@ data:
     {{- .Values.queries.resumed | nindent 4 }}
   query.inflight: |
     {{- .Values.queries.inflight | nindent 4 }}
+  query.egress: |
+    {{- .Values.queries.egress | nindent 4 }}
   query.cpu: |
     {{- .Values.queries.cpu | nindent 4 }}

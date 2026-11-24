@@ -408,6 +408,7 @@ A run suspends an actor only when all of these are true:
 | `routed` | The router counted a request for the template of the actor in the idle time. |
 | `resumed` | The API server resumed the actor in the idle time. |
 | `inflight` | Any request or tunnel through the router was open in the idle time. This signal covers every actor. |
+| `egress` | The egress proxy had a request to an outside host in flight in the idle time, or counted a new one. An actor that waits for a model answer is quiet on every other signal, and a suspend closes its outbound connections. This signal covers every actor. |
 | `cpu` | The CPU rate over the idle time is above `idleCpuCores` (default 0.05). |
 
 Any other result suspends nothing and fails the run. One failing actor does not stop the run for the other actors. The queries are values in `queries.*`. If your Prometheus names the metrics or labels in another way, change the queries.

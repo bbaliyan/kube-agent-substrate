@@ -40,12 +40,14 @@ queries:
   # One existence query for each source of a signal. Each must return a number above 0. The signal
   # queries below read 0 for a series that does not exist, so without these queries a source that
   # is renamed or not scraped would look like silence. Any source that fails stops the run.
-  # The router envoy feeds `inflight`, router feeds `routed`, ateapi feeds `resumed` and atelet feeds `cpu`. The envoy query
+  # The router envoy feeds `inflight`, the egress envoy feeds `egress`, router feeds `routed`, ateapi feeds `resumed` and
+  # atelet feeds `cpu`. The envoy query
   # names the router: the egress proxy has an envoy too, and it must not hide a router envoy that is not scraped.
   # The router, ateapi and atelet queries use a metric that the component always exports, and the
   # `app` label of its pod. Change them if your scrape sets other labels.
   health:
     envoy: 'count(envoy_server_live{app="atenet-router"} == 1)'
+    egress: 'count(envoy_server_live{app="atenet-egress"} == 1)'
     router: 'count(go_memstats_alloc_bytes{app="atenet-router"})'
     ateapi: 'count(go_memstats_alloc_bytes{app="ate-api-server"})'
     atelet: 'count(go_memstats_alloc_bytes{app="atelet"})'
@@ -58,6 +60,12 @@ queries:
   # Above 0 when a request was in flight through the actor clusters of the router at any time in the idle time.
   # Envoy has no series for one actor, so this covers all actors.
   inflight: 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[@WINDOW@:15s])'
+  # Above 0 when the egress proxy had a request to an outside host in flight at any time in the idle time, or counted a new
+  # one. An actor that waits for a model or a GitLab answer is quiet on every other signal, and a suspend closes its
+  # outbound connections, so this signal keeps it. The clusters are the forward proxy (https and http, with and without
+  # the TLS inspection of the credential injection) and its TLS inspection listener. The count of requests catches a call
+  # that is shorter than a scrape. Egress has no series for one actor, so this covers all actors.
+  egress: '(max_over_time((sum(envoy_cluster_upstream_rq_active{app="atenet-egress",envoy_cluster_name=~"egress_forward_proxy.*|mitm_internal"}) or vector(0))[@WINDOW@:15s])) + ((sum(envoy_cluster_upstream_rq_total{app="atenet-egress",envoy_cluster_name=~"egress_forward_proxy.*|mitm_internal"}) or vector(0)) != bool (sum(envoy_cluster_upstream_rq_total{app="atenet-egress",envoy_cluster_name=~"egress_forward_proxy.*|mitm_internal"} offset @WINDOW@) or vector(0)))'
   # CPU cores that the actors of the template used in the idle time. Compared with idleCpuCores.
   cpu: 'sum(rate(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}[@WINDOW@]))'
 

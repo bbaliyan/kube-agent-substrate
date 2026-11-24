@@ -104,13 +104,13 @@ check_actor() {
   [[ "$template_atespace" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || { err "actor $atespace/$name has the template atespace '$template_atespace'"; return 1; }
 
   # Every source of a signal must exist, or a missing series would read as silence.
-  for source in envoy router ateapi atelet; do
+  for source in envoy egress router ateapi atelet; do
     query "health.$source" "$template_atespace" "$template" || return 1
     above "$VALUE" 0 || { err "the $source metrics are missing or not scraped: the health.$source query returned $VALUE"; return 1; }
   done
 
   local summary=""
-  for signal in routed resumed inflight cpu; do
+  for signal in routed resumed inflight egress cpu; do
     query "$signal" "$template_atespace" "$template" || return 1
     threshold=0
     [ "$signal" != cpu ] || threshold="$IDLE_CPU_CORES"

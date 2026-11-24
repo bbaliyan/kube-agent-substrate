@@ -358,7 +358,7 @@ Warnings:
 
 To install:
 
-1. Make Prometheus scrape `atenet-router`, `atenet-egress`, `ate-api-server` and `atelet`. With the Prometheus Operator, set `podMonitors.enabled` and put the label that your Prometheus selects in `podMonitors.labels`. Upstream makes a scrape object only on GKE.
+1. Make Prometheus scrape `atenet-router`, `atenet-egress`, `ate-api-server` and `atelet`. With the Prometheus Operator, set `podMonitors.enabled` and put the label that your Prometheus selects in `podMonitors.labels`. The PodMonitors are in the control plane namespace, so the `podMonitorNamespaceSelector` of the Prometheus must include it. Upstream makes a scrape object only on GKE.
 2. Copy `examples/onprem/idle-suspend-values.yaml`.
 3. Set `actors`, `prometheus.url` and `image.digest`.
 4. Set `schedule` (default every 5 minutes) and `idleMinutes` (default 30).

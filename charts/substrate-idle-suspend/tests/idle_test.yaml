@@ -46,11 +46,23 @@ tests:
               interval: 30s
         documentIndex: 0
       - equal:
-          path: spec.podMetricsEndpoints[0].port
-          value: prometheus
+          path: spec.podMetricsEndpoints
+          value:
+            - port: metrics
+              interval: 30s
+        documentIndex: 1
+      - equal:
+          path: spec.podMetricsEndpoints
+          value:
+            - port: prometheus
+              interval: 30s
         documentIndex: 2
+      - equal:
+          path: spec.selector.matchLabels.app
+          value: atelet
+        documentIndex: 3
 
-  - it: rejects an interval that is not a number of seconds or minutes
+  - it: rejects an interval that is not a duration
     template: templates/podmonitor.yaml
     set:
       podMonitors:

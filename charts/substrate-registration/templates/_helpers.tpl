@@ -40,9 +40,18 @@ app.kubernetes.io/part-of: substrate-registration
 {{ end -}}
 {{- end -}}
 
+{{- /* One line for each member of each binding: atespace, role and member. */ -}}
+{{- define "substrate-registration.bindings" -}}
+{{- range $binding := .Values.accessBindings -}}
+{{- range $member := $binding.members -}}
+{{ $binding.atespace }} {{ $binding.role }} {{ $member }}
+{{ end -}}
+{{- end -}}
+{{- end -}}
+
 {{- /* Names the Job and its ConfigMap. A change to anything in the pod spec or the inputs gives a new name. The same inputs find the Job already there. */ -}}
 {{- define "substrate-registration.hash" -}}
-{{- $inputs := dict "image" (include "substrate-registration.image" .) "script" (.Files.Get "files/register.sh") "plan" (include "substrate-registration.plan" .) "namespace" .Values.substrate.namespace "waitSeconds" .Values.waitSeconds "resources" .Values.resources "nodeSelector" .Values.nodeSelector "tolerations" .Values.tolerations "serviceAccount" (include "substrate-registration.serviceAccountName" .) "backoffLimit" .Values.backoffLimit "activeDeadlineSeconds" .Values.activeDeadlineSeconds -}}
+{{- $inputs := dict "image" (include "substrate-registration.image" .) "script" (.Files.Get "files/register.sh") "plan" (include "substrate-registration.plan" .) "bindings" (include "substrate-registration.bindings" .) "namespace" .Values.substrate.namespace "waitSeconds" .Values.waitSeconds "resources" .Values.resources "nodeSelector" .Values.nodeSelector "tolerations" .Values.tolerations "serviceAccount" (include "substrate-registration.serviceAccountName" .) "backoffLimit" .Values.backoffLimit "activeDeadlineSeconds" .Values.activeDeadlineSeconds -}}
 {{- toJson $inputs | sha256sum | trunc 10 -}}
 {{- end -}}
 

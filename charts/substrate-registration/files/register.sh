@@ -6,6 +6,7 @@
 # declarative tool reconciles them. Each step reads the live state first, so a
 # repeat run on unchanged input makes no change.
 #
+# /scripts/bindings holds one line for each member of an access binding: atespace, role and member.
 # Input: /scripts/plan holds one line for each actor: name, atespace, template
 # name, egress hash and warm or cold. /actors/<name>/ holds template-name, egress-hash,
 # template.yaml and, if the actor has egress rules, egress-policy.json.
@@ -17,6 +18,7 @@ set -euo pipefail
 NS="${SUBSTRATE_NAMESPACE:-ate-system}"
 ACTORS_DIR="${ACTORS_DIR:-/actors}"
 PLAN="${PLAN:-/scripts/plan}"
+BINDINGS="${BINDINGS:-/scripts/bindings}"
 TOKEN_FILE="${TOKEN_FILE:-/var/run/ate/token}"
 WAIT_SECONDS="${WAIT_SECONDS:-900}"
 POLL_SECONDS="${POLL_SECONDS:-5}"
@@ -276,11 +278,47 @@ reconcile() {
   log "Actor $atespace/$actor is current"
 }
 
+# Adds a member to the binding of a role in the access policy of an atespace. It removes nobody, and it makes no
+# change when the member already has the role. An atespace with no policy answers with an empty result and exit
+# code 0, and an update must carry the uid and the version of the stored policy.
+reconcile_binding() {
+  local atespace="$1" role="$2" member="$3" live
+  ensure_atespace "$atespace"
+  if ! live=$(ate get access-policy -a "$atespace" -o json 2>"$WORK/stderr"); then
+    cat "$WORK/stderr" >&2
+    exit 1
+  fi
+  if [ -z "$live" ]; then
+    log "Create access policy of $atespace: $role for $member"
+    jq -n --arg role "$role" --arg member "$member" '{bindings: [{role: $role, members: [$member]}]}' >"$WORK/policy.json"
+    create access-policy -a "$atespace" -f "$WORK/policy.json"
+    return 0
+  fi
+  if jq -e --arg role "$role" --arg member "$member" '[.bindings[]? | select(.role == $role) | .members[]?] | index($member) != null' <<<"$live" >/dev/null; then
+    return 0
+  fi
+  log "Update access policy of $atespace: $role for $member"
+  jq --arg role "$role" --arg member "$member" '
+    if any(.bindings[]?; .role == $role)
+    then .bindings |= map(if .role == $role then .members += [$member] else . end)
+    else .bindings = ((.bindings // []) + [{role: $role, members: [$member]}])
+    end' <<<"$live" >"$WORK/policy.json"
+  ate update access-policy -a "$atespace" -f "$WORK/policy.json"
+}
+
 wait_until "ate-api-server in $NS is not available" api_available
 while read -r -u 3 actor atespace template egress_hash warm; do
   [ -n "$actor" ] || continue
   reconcile "$actor" "$atespace" "$template" "$egress_hash" "${warm:-cold}"
 done 3<"$PLAN"
+
+# The bindings come before the busy check, so a busy actor does not hold back a grant.
+if [ -s "$BINDINGS" ]; then
+  while read -r -u 3 atespace role member; do
+    [ -n "$atespace" ] || continue
+    reconcile_binding "$atespace" "$role" "$member"
+  done 3<"$BINDINGS"
+fi
 
 # A busy actor keeps its old template. The Job fails so the drift is visible in Argo CD.
 # A retry or a later sync moves the actor once it is suspended.

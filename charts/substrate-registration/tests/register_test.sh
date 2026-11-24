@@ -7,7 +7,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/bin" "$work/state"/{atespaces,templates,actors,policies} "$work/actors/web"
+mkdir -p "$work/bin" "$work/state"/{atespaces,templates,actors,policies,access} "$work/actors/web"
 
 cat >"$work/bin/kubectl-ate" <<'STUB'
 #!/usr/bin/env bash
@@ -18,7 +18,8 @@ preview=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --preview) preview=1; shift ;;
-    --token-file | -o | -a) shift 2 ;;
+    --token-file | -o) shift 2 ;;
+    -a) atespace_arg="$2"; shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -63,6 +64,16 @@ case "$verb $kind" in
   "update egress-policy")
     jq -e '.metadata.uid == "u1" and .metadata.version == "3"' "$5" >/dev/null
     echo "update egress-policy $name" >>"$s/calls"; cp "$5" "$s/policies/$name" ;;
+  "get access-policy")
+    [ ! -e "$s/fail-policy-get" ] || { echo "rpc error: code = Unavailable desc = control plane busy" >&2; exit 1; }
+    # A missing policy is an empty result with exit code 0, as the real client answers.
+    if [ -e "$s/access/$atespace_arg" ]; then cat "$s/access/$atespace_arg"; else echo "atespace \"$atespace_arg\" has no access policy" >&2; fi ;;
+  "create access-policy")
+    echo "create access-policy $atespace_arg" >>"$s/calls"
+    jq '. + {metadata: {uid: "p1", version: "1"}}' "$4" >"$s/access/$atespace_arg" ;;
+  "update access-policy")
+    jq -e '.metadata.uid == "p1" and .metadata.version == "1"' "$4" >/dev/null
+    echo "update access-policy $atespace_arg" >>"$s/calls"; cp "$4" "$s/access/$atespace_arg" ;;
   "delete egress-policy") echo "delete egress-policy $name" >>"$s/calls"; rm -f "$s/policies/$name" ;;
   *) echo "stub: unexpected $*" >&2; exit 2 ;;
 esac
@@ -71,7 +82,7 @@ chmod +x "$work/bin/"*
 
 run() {
   : >"$work/state/calls"
-  PATH="$work/bin:$PATH" STATE="$work/state" ACTORS_DIR="$work/actors" PLAN="$work/plan" \
+  PATH="$work/bin:$PATH" STATE="$work/state" ACTORS_DIR="$work/actors" PLAN="$work/plan" BINDINGS="$work/bindings" \
     POLL_SECONDS=0 WAIT_SECONDS=1 bash "$here/../files/register.sh" >"$work/out" 2>&1
 }
 
@@ -250,3 +261,38 @@ expect_calls "create actor-template ${long:0:52}-cccccccccc
 create actor $long ${long:0:52}-cccccccccc
 delete actor-template ${long:0:52}-eeeeeeeeee
 " "a delete that the server answers with Aborted is tried again"
+
+# Access bindings: the Job grants a role to a member and changes nothing when the member has it.
+: >"$work/plan"
+member=user:system:serviceaccount:pr-agent:substrate-idle-suspend
+printf 'ops editor %s
+' "$member" >"$work/bindings"
+pass "binding, no policy"
+expect_calls "create atespace ops
+create access-policy ops
+" "a binding in an atespace with no policy creates the atespace and the policy"
+pass "binding rerun"
+expect_calls "" "a rerun of a binding that holds changes nothing"
+
+printf 'ops editor %s
+ops editor user:system:serviceaccount:pr-agent:other
+' "$member" >"$work/bindings"
+pass "binding, second member"
+expect_calls "update access-policy ops
+" "a second member of the same role is added to the binding, and the first stays"
+check_policy() { jq -e "$1" "$work/state/access/ops" >/dev/null || { echo "FAIL: $2" >&2; cat "$work/state/access/ops" >&2; exit 1; }; echo "ok: $2"; }
+check_policy '.bindings | length == 1 and (.[0].members | length == 2)' "the two members share one binding"
+
+printf 'ops viewer %s
+' "$member" >>"$work/bindings"
+pass "binding, second role"
+expect_calls "update access-policy ops
+" "a member of a new role adds a binding and removes nobody"
+check_policy '.bindings | length == 2 and (.[0].members | length == 2)' "the first binding is unchanged"
+pass "binding, rerun after update"
+expect_calls "" "a rerun after the updates changes nothing"
+
+touch "$work/state/fail-policy-get"
+if run; then echo "FAIL: a failed read of the access policy did not fail the Job" >&2; exit 1; fi
+expect_calls "" "a failed read of the access policy fails the Job and writes nothing"
+rm "$work/state/fail-policy-get"

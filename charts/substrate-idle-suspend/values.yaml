@@ -60,12 +60,15 @@ queries:
   # Above 0 when a request was in flight through the actor clusters of the router at any time in the idle time.
   # Envoy has no series for one actor, so this covers all actors.
   inflight: 'max_over_time((sum(envoy_cluster_upstream_rq_active{envoy_cluster_name=~"actor_.*"}) or vector(0))[@WINDOW@:15s])'
-  # Above 0 when the egress proxy had a request to an outside host in flight at any time in the idle time, or counted a new
-  # one. An actor that waits for a model or a GitLab answer is quiet on every other signal, and a suspend closes its
-  # outbound connections, so this signal keeps it. The clusters are the forward proxy (https and http, with and without
-  # the TLS inspection of the credential injection) and its TLS inspection listener. The count of requests catches a call
-  # that is shorter than a scrape. Egress has no series for one actor, so this covers all actors.
-  egress: '(max_over_time((sum(envoy_cluster_upstream_rq_active{app="atenet-egress",envoy_cluster_name=~"egress_forward_proxy.*|mitm_internal"}) or vector(0))[@WINDOW@:15s])) + ((sum(envoy_cluster_upstream_rq_total{app="atenet-egress",envoy_cluster_name=~"egress_forward_proxy.*|mitm_internal"}) or vector(0)) != bool (sum(envoy_cluster_upstream_rq_total{app="atenet-egress",envoy_cluster_name=~"egress_forward_proxy.*|mitm_internal"} offset @WINDOW@) or vector(0)))'
+  # Above 0 when a request to an outside host was in flight in the egress proxy at any time in the idle time. An actor that
+  # waits for a model or a GitLab answer is quiet on every other signal, and a suspend closes its outbound connections, so
+  # this signal keeps it. It counts the requests that the proxy sees inside its tunnels (the listeners that terminate TLS or
+  # forward plain HTTP), one per call. It does not count the tunnel itself: a client that keeps an idle connection open holds a
+  # tunnel for as long as it likes, and that is not work. It does not compare request counts either: an actor sends its own
+  # telemetry every minute, and that would keep it awake for ever. A call that is shorter than a scrape can be missed, and the
+  # router signals cover the window after the request that started the work. Egress has no series for one actor, so this
+  # covers all actors.
+  egress: 'max_over_time((sum(envoy_http_downstream_rq_active{app="atenet-egress",envoy_http_conn_manager_prefix=~"mitm_.*"}) or vector(0))[@WINDOW@:15s])'
   # CPU cores that the actors of the template used in the idle time. Compared with idleCpuCores.
   cpu: 'sum(rate(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}[@WINDOW@]))'
 

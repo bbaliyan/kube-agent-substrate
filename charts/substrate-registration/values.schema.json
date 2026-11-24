@@ -57,6 +57,16 @@
         }
       }
     },
+    "unregister": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Runs a PreDelete hook that deletes the actors, templates and empty atespaces. Needs the owner role in each atespace: the chart binds the Job as owner of the atespaces of its actors. The Job must be a bootstrap owner when it registers. accessBindings still rejects owner."
+        }
+      }
+    },
     "waitSeconds": { "type": "integer", "minimum": 1 },
     "backoffLimit": { "type": "integer", "minimum": 0 },
     "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },

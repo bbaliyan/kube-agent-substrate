@@ -308,6 +308,7 @@ Then install the chart with the same values file as the actor release, and set `
 | `substrate.namespace` | `ate-system` | The namespace of `ate-api-server` |
 | `image.digest` | all zeros | Digest of the registration image. The all-zero digest never pulls. |
 | `accessBindings` | `[]` | Roles to grant. Each entry has `atespace`, `role` (`viewer` or `editor`) and `members`. The Job adds the members to the access policy of the atespace. It removes nobody, so a revoke is a manual `kubectl ate update access-policy`. A member has the prefix `user:`. |
+| `unregister.enabled` | `false` | Runs an Argo CD PreDelete hook Job when the Application is deleted. It deletes each actor, then its templates, then each atespace if it is empty. NotFound counts as done, and an atespace that another agent still uses stays. The atespace delete needs the `owner` role, so the chart binds the Job as owner of the atespaces of its actors. `accessBindings` still rejects `owner`. A delete that skips the finalizer does not run the hook. Then run `kubectl ate delete` by hand. |
 | `waitSeconds` | `900` | How long the Job waits for `ate-api-server` and for the actor ConfigMaps |
 | `backoffLimit`, `activeDeadlineSeconds` | `2`, `1800` | Retries and time limit of the Job |
 | `ttlSecondsAfterFinished` | `86400` | Time before a finished Job is deleted |

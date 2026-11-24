@@ -47,6 +47,16 @@ app.kubernetes.io/part-of: substrate-registration
 {{ $binding.atespace }} {{ $binding.role }} {{ $member }}
 {{ end -}}
 {{- end -}}
+{{- /* With unregister.enabled the Job owns each atespace of its actors. The hook must delete an atespace, which needs the owner role, and it must not depend on the bootstrapOwners list: that list changes when an agent leaves. The Job holds the role as a binding in the atespace, so it stays as long as the atespace does. */ -}}
+{{- if .Values.unregister.enabled -}}
+{{- $seen := dict -}}
+{{- range $actor := .Values.actors -}}
+{{- if not (hasKey $seen $actor.atespace) -}}
+{{- $_ := set $seen $actor.atespace true -}}
+{{ $actor.atespace }} owner user:system:serviceaccount:{{ $.Release.Namespace }}:{{ include "substrate-registration.serviceAccountName" $ }}
+{{ end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- /* Names the Job and its ConfigMap. A change to anything in the pod spec or the inputs gives a new name. The same inputs find the Job already there. */ -}}

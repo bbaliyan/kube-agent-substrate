@@ -3,6 +3,7 @@ templates:
   - templates/job.yaml
   - templates/configmap.yaml
   - templates/rbac.yaml
+  - templates/unregister-job.yaml
 values:
   - ../ci/onprem-values.yaml
 tests:
@@ -199,3 +200,99 @@ tests:
       - equal:
           path: data.bindings
           value: ""
+
+  - it: renders no unregister hook by default
+    template: templates/unregister-job.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a PreDelete hook Job with the account of the registration Job when unregister is enabled
+    template: templates/unregister-job.yaml
+    set:
+      unregister.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/hook"]
+          value: PreDelete
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/hook-delete-policy"]
+          value: HookSucceeded
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-substrate-registration
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: [bash, /scripts/register.sh, unregister]
+      - notExists:
+          path: spec.ttlSecondsAfterFinished
+      - matchRegex:
+          path: spec.template.spec.volumes[0].configMap.name
+          pattern: "^RELEASE-NAME-substrate-registration-[a-f0-9]{10}$"
+
+  - it: reads the plan from the ConfigMap of its own release, not from the ConfigMaps of the actors
+    template: templates/unregister-job.yaml
+    set:
+      unregister.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: actors
+        any: true
+
+  - it: makes the Job an owner of each atespace of its actors, once, when unregister is enabled
+    template: templates/configmap.yaml
+    values:
+      - ../ci/aws-values.yaml
+    set:
+      unregister.enabled: true
+      actors:
+        - {name: a, atespace: reviews}
+        - {name: b, atespace: reviews}
+        - {name: c, atespace: ops}
+    asserts:
+      - equal:
+          path: data.bindings
+          value: |
+            reviews owner user:system:serviceaccount:NAMESPACE:RELEASE-NAME-substrate-registration
+            ops owner user:system:serviceaccount:NAMESPACE:RELEASE-NAME-substrate-registration
+
+  - it: adds no owner binding when unregister is off
+    template: templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.bindings
+          value: ""
+
+  - it: keeps the owner binding of the Job next to the bindings of the user
+    template: templates/configmap.yaml
+    set:
+      unregister.enabled: true
+      accessBindings:
+        - atespace: reviews
+          role: editor
+          members: [user:system:serviceaccount:agents:idle-suspend]
+    asserts:
+      - matchRegex:
+          path: data.bindings
+          pattern: "reviews editor user:system:serviceaccount:agents:idle-suspend\nreviews owner "
+
+  - it: still rejects an owner binding from the user when unregister is enabled
+    template: templates/configmap.yaml
+    set:
+      unregister.enabled: true
+      accessBindings:
+        - atespace: reviews
+          role: owner
+          members: [user:system:serviceaccount:agents:x]
+    asserts:
+      - failedTemplate:
+          errorPattern: "role"
+
+  - it: rejects an unknown unregister key
+    template: templates/unregister-job.yaml
+    set:
+      unregister.force: true
+    asserts:
+      - failedTemplate: {}

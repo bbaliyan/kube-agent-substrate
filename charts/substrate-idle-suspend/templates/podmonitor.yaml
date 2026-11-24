@@ -3,7 +3,7 @@
 {{- $root := . -}}
 {{- $components := list
   (dict "app" "atenet-router" "endpoints" (list (dict "port" "metrics") (dict "port" "envoy-metrics" "path" "/stats/prometheus")))
-  (dict "app" "atenet-egress" "endpoints" (list (dict "port" "metrics")))
+  (dict "app" "atenet-egress" "endpoints" (list (dict "port" "metrics") (dict "port" "envoy-metrics" "path" "/stats/prometheus")))
   (dict "app" "ate-api-server" "endpoints" (list (dict "port" "prometheus")))
   (dict "app" "atelet" "endpoints" (list (dict "port" "prometheus"))) -}}
 {{- range $component := $components }}

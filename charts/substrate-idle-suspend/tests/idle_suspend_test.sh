@@ -60,12 +60,14 @@ done
 [ "$stdin" = 0 ] || cat >"$s/curl-stdin"
 printf '%s\n' "$query" >>"$s/queries"
 case "$query" in
+  *envoy_server_live*'app="atenet-egress"'*) signal=health-egress ;;
   *envoy_server_live*) signal=health-envoy ;;
   *'app="atenet-router"'*) signal=health-router ;;
   *'app="ate-api-server"'*) signal=health-ateapi ;;
   *'app="atelet"'*) signal=health-atelet ;;
   *atenet_router_route_duration*) signal=routed ;;
   *lifecycle_operation*) signal=resumed ;;
+  *envoy_cluster_upstream_rq_active*'app="atenet-egress"'*) signal=egress ;;
   *envoy_cluster_upstream_rq_active*) signal=inflight ;;
   *ate_actor_stats_cpu_time*) signal=cpu ;;
   *) echo "stub: unknown query $query" >&2; exit 2 ;;
@@ -89,7 +91,7 @@ helm template r "$chart" -f "$chart/ci/aws-values.yaml" -s templates/configmap.y
     out && /^    / { sub(/^    /, ""); print > out; next }
     out && /^[^ ]/ { close(out); out = "" }
   '
-for f in actors config.env query.health.envoy query.health.router query.health.ateapi query.health.atelet query.routed query.resumed query.inflight query.cpu; do
+for f in actors config.env query.health.envoy query.health.egress query.health.router query.health.ateapi query.health.atelet query.routed query.resumed query.inflight query.egress query.cpu; do
   test -s "$work/config/$f" || { echo "FAIL: the chart did not render $f"; exit 1; }
 done
 
@@ -100,8 +102,8 @@ reset() {
   : >"$state/queries"
   : >"$state/signals"
   local s
-  for s in routed resumed inflight cpu; do echo 0 >"$state/value.$s"; done
-  for s in health-envoy health-router health-ateapi health-atelet; do echo 1 >"$state/value.$s"; done
+  for s in routed resumed inflight egress cpu; do echo 0 >"$state/value.$s"; done
+  for s in health-envoy health-egress health-router health-ateapi health-atelet; do echo 1 >"$state/value.$s"; done
   echo 0.001 >"$state/value.cpu"
   # The aws values file lists reviews/pr-review.
   echo "ACTOR_STATE_RUNNING pr-review-0123456789" >"$state/actors/reviews.pr-review"
@@ -153,7 +155,7 @@ reset
 echo 0.05 >"$state/value.cpu"
 expect_suspend "a CPU use equal to the threshold counts as idle"
 
-for signal in routed resumed inflight; do
+for signal in routed resumed inflight egress; do
   reset
   echo 1 >"$state/value.$signal"
   expect_no_suspend "the $signal signal alone keeps the actor"
@@ -173,7 +175,7 @@ echo ERR >"$state/value.cpu"
 expect_no_suspend "a busy signal ends the check before a later query that would fail"
 grep -qx cpu "$state/signals" && fail "the cpu query ran after a busy signal"
 
-for signal in health-envoy health-router health-ateapi health-atelet routed resumed inflight cpu; do
+for signal in health-envoy health-egress health-router health-ateapi health-atelet routed resumed inflight egress cpu; do
   for mode in ERR EMPTY MANY NAN BAD; do
     reset
     echo "$mode" >"$state/value.$signal"
@@ -181,12 +183,12 @@ for signal in health-envoy health-router health-ateapi health-atelet routed resu
   done
 done
 
-for source in envoy router ateapi atelet; do
+for source in envoy egress router ateapi atelet; do
   reset
   echo 0 >"$state/value.health-$source"
   expect_failure_no_suspend "a missing $source series (health returns 0) fails the run"
   grep -q "the $source metrics are missing" "$work/out" || fail "the output did not name the missing $source source"
-  test ! -s "$state/signals" || ! grep -qx 'routed\|cpu\|resumed\|inflight' "$state/signals" || fail "a signal query ran although the $source check failed"
+  test ! -s "$state/signals" || ! grep -qx 'routed\|cpu\|resumed\|inflight\|egress' "$state/signals" || fail "a signal query ran although the $source check failed"
 done
 
 reset

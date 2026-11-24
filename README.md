@@ -348,7 +348,7 @@ RBAC cannot name a pod that changes on every rollout, so the Role covers every p
 
 ## Suspend idle actors
 
-Substrate v1.0.1 never suspends an idle actor. The `substrate-idle-suspend` chart runs a CronJob that does it for the actors you list. The CronJob uses the registration image. You can delete the chart when upstream ships its own idle policy.
+Substrate v1.0.1 never suspends an idle actor. The `substrate-idle-suspend` chart runs a CronJob that does it for the actors you list. The CronJob uses the registration image. A release with an empty `actors` list renders only the PodMonitors, so one release can own the scrape objects of the control plane while other releases list the actors. You can delete the chart when upstream ships its own idle policy.
 
 Warnings:
 

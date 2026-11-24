@@ -1,3 +1,4 @@
+{{- if .Values.actors }}
 {{- /* What kubectl-ate needs to reach ate-api-server: read the Service, list its pods and port-forward to one. */ -}}
 {{- $sa := include "substrate-idle-suspend.serviceAccountName" . -}}
 {{- $name := include "substrate-idle-suspend.fullname" . -}}
@@ -42,3 +43,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ $sa }}
     namespace: {{ .Release.Namespace }}
+{{- end }}

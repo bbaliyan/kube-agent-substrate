@@ -65,6 +65,25 @@ tests:
           value: atelet
         documentIndex: 3
 
+  - it: renders the PodMonitors and nothing else when it has no actors
+    set:
+      actors: []
+      podMonitors:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 4
+        template: templates/podmonitor.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/cronjob.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/configmap.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/rbac.yaml
+
   - it: rejects an interval that is not a duration
     template: templates/podmonitor.yaml
     set:

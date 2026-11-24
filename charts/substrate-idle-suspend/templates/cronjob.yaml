@@ -1,3 +1,4 @@
+{{- if .Values.actors }}
 {{- $config := printf "%s-%s" (include "substrate-idle-suspend.fullname" .) (include "substrate-idle-suspend.hash" .) -}}
 apiVersion: batch/v1
 kind: CronJob
@@ -97,3 +98,4 @@ spec:
               secret:
                 secretName: {{ .Values.prometheus.caSecret.name }}
             {{- end }}
+{{- end }}

@@ -70,10 +70,23 @@ case "$verb $kind" in
     if [ -e "$s/access/$atespace_arg" ]; then cat "$s/access/$atespace_arg"; else echo "atespace \"$atespace_arg\" has no access policy" >&2; fi ;;
   "create access-policy")
     echo "create access-policy $atespace_arg" >>"$s/calls"
+    # Another client writes the policy first: ours is refused, and the other write stays.
+    if [ -e "$s/race-create" ]; then
+      echo '{"bindings":[{"role":"editor","members":["user:other"]}],"metadata":{"uid":"p1","version":"1"}}' >"$s/access/$atespace_arg"
+      rm "$s/race-create"
+      echo "rpc error: code = AlreadyExists desc = AccessPolicy already exists" >&2; exit 1
+    fi
     jq '. + {metadata: {uid: "p1", version: "1"}}' "$4" >"$s/access/$atespace_arg" ;;
   "update access-policy")
     jq -e '.metadata.uid == "p1" and .metadata.version == "1"' "$4" >/dev/null
-    echo "update access-policy $atespace_arg" >>"$s/calls"; cp "$4" "$s/access/$atespace_arg" ;;
+    echo "update access-policy $atespace_arg" >>"$s/calls"
+    # The policy changed after the read: the server answers Aborted once, and the other write is stored.
+    if [ -e "$s/race-update" ]; then
+      echo '{"bindings":[{"role":"editor","members":["user:other"]}],"metadata":{"uid":"p1","version":"1"}}' >"$s/access/$atespace_arg"
+      rm "$s/race-update"
+      echo "rpc error: code = Aborted desc = AccessPolicy version conflict" >&2; exit 1
+    fi
+    cp "$4" "$s/access/$atespace_arg" ;;
   "delete egress-policy") echo "delete egress-policy $name" >>"$s/calls"; rm -f "$s/policies/$name" ;;
   *) echo "stub: unexpected $*" >&2; exit 2 ;;
 esac
@@ -296,3 +309,36 @@ touch "$work/state/fail-policy-get"
 if run; then echo "FAIL: a failed read of the access policy did not fail the Job" >&2; exit 1; fi
 expect_calls "" "a failed read of the access policy fails the Job and writes nothing"
 rm "$work/state/fail-policy-get"
+
+# A create that loses a race: the member is added to the policy that the other client wrote.
+check_access() { jq -e "$2" "$work/state/access/$1" >/dev/null || { echo "FAIL: $3" >&2; cat "$work/state/access/$1" >&2; exit 1; }; echo "ok: $3"; }
+printf 'race editor %s\n' "$member" >"$work/bindings"
+touch "$work/state/race-create"
+pass "binding, lost create"
+expect_calls "create atespace race
+create access-policy race
+update access-policy race
+" "a create that finds a policy written first adds the member to it"
+check_access race '(.bindings[0].members | length) == 2 and (.bindings[0].members | index("user:other") != null)' "the write of the other client stays"
+
+# An update that loses a race: the Job reads again, and the other write and the grant are both there.
+printf 'race editor user:system:serviceaccount:pr-agent:third\n' >"$work/bindings"
+touch "$work/state/race-update"
+pass "binding, aborted update"
+expect_calls "update access-policy race
+update access-policy race
+" "an update that the server aborts is read again and applied to the newer policy"
+check_access race '(.bindings[0].members | sort) == ["user:other", "user:system:serviceaccount:pr-agent:third"]' "the write of the other client and the grant are both there"
+
+# A live policy with no bindings key, and a binding with no members list.
+printf '{"metadata":{"uid":"p1","version":"1"}}\n' >"$work/state/access/bare"
+touch "$work/state/atespaces/bare"
+printf 'bare editor %s\n' "$member" >"$work/bindings"
+pass "binding, policy without bindings"
+expect_calls "update access-policy bare
+" "a policy with no bindings key gets its first binding"
+printf '{"bindings":[{"role":"editor"}],"metadata":{"uid":"p1","version":"1"}}\n' >"$work/state/access/bare"
+pass "binding, role without members"
+expect_calls "update access-policy bare
+" "a binding with no members list takes the member"
+check_access bare '.bindings[0].members == ["user:system:serviceaccount:pr-agent:substrate-idle-suspend"]' "the member is the only one of the binding"

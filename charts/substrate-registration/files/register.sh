@@ -280,30 +280,46 @@ reconcile() {
 
 # Adds a member to the binding of a role in the access policy of an atespace. It removes nobody, and it makes no
 # change when the member already has the role. An atespace with no policy answers with an empty result and exit
-# code 0, and an update must carry the uid and the version of the stored policy.
+# code 0. An update must carry the uid and the version of the stored policy, and the server answers Aborted when
+# the policy changed after the read. A create that finds a policy (AlreadyExists) and an Aborted update both go
+# back to the read, so a write of another client is never lost.
 reconcile_binding() {
-  local atespace="$1" role="$2" member="$3" live
+  local atespace="$1" role="$2" member="$3" live out attempt
   ensure_atespace "$atespace"
-  if ! live=$(ate get access-policy -a "$atespace" -o json 2>"$WORK/stderr"); then
-    cat "$WORK/stderr" >&2
-    exit 1
-  fi
-  if [ -z "$live" ]; then
-    log "Create access policy of $atespace: $role for $member"
-    jq -n --arg role "$role" --arg member "$member" '{bindings: [{role: $role, members: [$member]}]}' >"$WORK/policy.json"
-    create access-policy -a "$atespace" -f "$WORK/policy.json"
-    return 0
-  fi
-  if jq -e --arg role "$role" --arg member "$member" '[.bindings[]? | select(.role == $role) | .members[]?] | index($member) != null' <<<"$live" >/dev/null; then
-    return 0
-  fi
-  log "Update access policy of $atespace: $role for $member"
-  jq --arg role "$role" --arg member "$member" '
-    if any(.bindings[]?; .role == $role)
-    then .bindings |= map(if .role == $role then .members += [$member] else . end)
-    else .bindings = ((.bindings // []) + [{role: $role, members: [$member]}])
-    end' <<<"$live" >"$WORK/policy.json"
-  ate update access-policy -a "$atespace" -f "$WORK/policy.json"
+  for attempt in 1 2 3 4 5; do
+    if ! live=$(ate get access-policy -a "$atespace" -o json 2>"$WORK/stderr"); then
+      cat "$WORK/stderr" >&2
+      exit 1
+    fi
+    if [ -z "$live" ]; then
+      log "Create access policy of $atespace: $role for $member"
+      jq -n --arg role "$role" --arg member "$member" '{bindings: [{role: $role, members: [$member]}]}' >"$WORK/policy.json"
+      create access-policy -a "$atespace" -f "$WORK/policy.json"
+      continue
+    fi
+    if jq -e --arg role "$role" --arg member "$member" '[.bindings[]? | select(.role == $role) | .members[]?] | index($member) != null' <<<"$live" >/dev/null; then
+      return 0
+    fi
+    log "Update access policy of $atespace: $role for $member"
+    jq --arg role "$role" --arg member "$member" '
+      if any(.bindings[]?; .role == $role)
+      then .bindings |= map(if .role == $role then .members = ((.members // []) + [$member]) else . end)
+      else .bindings = ((.bindings // []) + [{role: $role, members: [$member]}])
+      end' <<<"$live" >"$WORK/policy.json"
+    if out=$(ate update access-policy -a "$atespace" -f "$WORK/policy.json" 2>&1); then
+      log "$out"
+      return 0
+    fi
+    case "$out" in
+      *Aborted*) sleep "$POLL_SECONDS" ;;
+      *)
+        printf '%s\n' "$out" >&2
+        exit 1
+        ;;
+    esac
+  done
+  log "FAILED: the access policy of $atespace did not take $role for $member after 5 tries."
+  exit 1
 }
 
 wait_until "ate-api-server in $NS is not available" api_available

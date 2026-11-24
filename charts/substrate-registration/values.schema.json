@@ -27,11 +27,11 @@
         "required": ["atespace", "role", "members"],
         "properties": {
           "atespace": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63 },
-          "role": { "type": "string", "pattern": "^[a-z][a-z-]*$" },
+          "role": { "type": "string", "enum": ["viewer", "editor"], "description": "Never owner: the Job is a bootstrap owner, so an owner binding would hand out full control." },
           "members": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "string", "pattern": "^user:[^ ]+$" }
+            "items": { "type": "string", "pattern": "^user:\\S+$" }
           }
         }
       }

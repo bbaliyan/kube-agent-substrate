@@ -181,3 +181,21 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "members"
+
+  - it: rejects the owner role, which would hand out full control from a bootstrap owner
+    template: templates/configmap.yaml
+    set:
+      accessBindings:
+        - atespace: reviews
+          role: owner
+          members: [user:system:serviceaccount:agents:idle-suspend]
+    asserts:
+      - failedTemplate:
+          errorPattern: "role"
+
+  - it: renders an empty bindings file when there are no access bindings
+    template: templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.bindings
+          value: ""

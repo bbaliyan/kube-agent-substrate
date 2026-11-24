@@ -307,7 +307,7 @@ Then install the chart with the same values file as the actor release, and set `
 | `snapshotStorageLocation`, `actors` | as in `substrate-actor` | Must be the same as in the actor release |
 | `substrate.namespace` | `ate-system` | The namespace of `ate-api-server` |
 | `image.digest` | all zeros | Digest of the registration image. The all-zero digest never pulls. |
-| `accessBindings` | `[]` | Roles to grant. Each entry has `atespace`, `role` and `members`. The Job adds the members to the access policy of the atespace. It removes nobody. A member has the prefix `user:`. |
+| `accessBindings` | `[]` | Roles to grant. Each entry has `atespace`, `role` (`viewer` or `editor`) and `members`. The Job adds the members to the access policy of the atespace. It removes nobody, so a revoke is a manual `kubectl ate update access-policy`. A member has the prefix `user:`. |
 | `waitSeconds` | `900` | How long the Job waits for `ate-api-server` and for the actor ConfigMaps |
 | `backoffLimit`, `activeDeadlineSeconds` | `2`, `1800` | Retries and time limit of the Job |
 | `ttlSecondsAfterFinished` | `86400` | Time before a finished Job is deleted |
@@ -524,7 +524,7 @@ Each workaround, the upstream issue behind it, and what to remove when the issue
 | The registration Job | Actors, templates and egress policies are not Kubernetes resources | none known | The registration chart |
 | A hash in the template name, and a compare of the live egress policy | A template has no metadata and cannot change | none known | The hash |
 | Move an actor only while it is suspended | The server refuses to move a running actor | none known | The busy-actor gate |
-| The Job is a bootstrap owner and passes its own token | `kubectl ate` falls back to the shared `ate-client` account | none known | The bootstrap owner entry |
+| The Job is a bootstrap owner and passes its own token. It also grants `viewer` and `editor` roles | `kubectl ate` falls back to the shared `ate-client` account, and the access policy has no declarative form | none known | The bootstrap owner entry, and the role list of the schema |
 | The Role covers every pod in `ate-system` | Port-forward RBAC cannot name a pod | none known | The Role |
 | `--preview` in the registration Job | Each template names a snapshot location, which is a preview feature | none known | The flag |
 | The access bindings of the registration Job | Substrate v1.0.1 has no declarative access policy | none known | The `accessBindings` value |

@@ -40,11 +40,12 @@ queries:
   # One existence query for each source of a signal. Each must return a number above 0. The signal
   # queries below read 0 for a series that does not exist, so without these queries a source that
   # is renamed or not scraped would look like silence. Any source that fails stops the run.
-  # envoy feeds `inflight`, router feeds `routed`, ateapi feeds `resumed` and atelet feeds `cpu`.
+  # The router envoy feeds `inflight`, router feeds `routed`, ateapi feeds `resumed` and atelet feeds `cpu`. The envoy query
+  # names the router: the egress proxy has an envoy too, and it must not hide a router envoy that is not scraped.
   # The router, ateapi and atelet queries use a metric that the component always exports, and the
   # `app` label of its pod. Change them if your scrape sets other labels.
   health:
-    envoy: 'count(envoy_server_live == 1)'
+    envoy: 'count(envoy_server_live{app="atenet-router"} == 1)'
     router: 'count(go_memstats_alloc_bytes{app="atenet-router"})'
     ateapi: 'count(go_memstats_alloc_bytes{app="ate-api-server"})'
     atelet: 'count(go_memstats_alloc_bytes{app="atelet"})'
@@ -88,6 +89,15 @@ resources:
 
 nodeSelector: {}
 tolerations: []
+
+# PodMonitors of the Prometheus Operator for the components that feed the signals: the router, the egress proxy, the
+# API server and the atelet. Upstream makes a scrape object only on GKE (PodMonitoring), so a cluster with the
+# Prometheus Operator turns this on. `labels` must match the podMonitorSelector of the Prometheus.
+podMonitors:
+  enabled: false
+  labels: {}
+  # Keep it well below idleMinutes: a request younger than one scrape is not in the data yet.
+  interval: 30s
 
 serviceAccount:
   name: ""

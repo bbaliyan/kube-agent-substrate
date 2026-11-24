@@ -358,7 +358,7 @@ Warnings:
 
 To install:
 
-1. Make Prometheus scrape `atenet-router`, `atenet-egress`, `ate-api-server` and `atelet`.
+1. Make Prometheus scrape `atenet-router`, `atenet-egress`, `ate-api-server` and `atelet`. With the Prometheus Operator, set `podMonitors.enabled` and put the label that your Prometheus selects in `podMonitors.labels`. The PodMonitors are in the control plane namespace, so the `podMonitorNamespaceSelector` of the Prometheus must include it. Upstream makes a scrape object only on GKE.
 2. Copy `examples/onprem/idle-suspend-values.yaml`.
 3. Set `actors`, `prometheus.url` and `image.digest`.
 4. Set `schedule` (default every 5 minutes) and `idleMinutes` (default 30).
@@ -387,6 +387,7 @@ If Prometheus needs a bearer token, set `prometheus.bearerTokenSecret.name`. If 
 | `idleCpuCores` | `0.05` | CPU cores that still count as idle |
 | `suspendMode` | `async` | `async` (the upstream default) or `sync`: how the snapshot becomes durable |
 | `prometheus.url` | `http://prometheus-operated.monitoring.svc:9090` | Base URL of Prometheus |
+| `podMonitors.enabled`, `podMonitors.labels`, `podMonitors.interval` | `false`, `{}`, `30s` | PodMonitors of the Prometheus Operator for the four components that feed the signals. They are made in the control plane namespace. |
 | `prometheus.timeoutSeconds` | `20` | Time limit of one query |
 | `queries.*` | see `values.yaml` | The PromQL of each signal |
 | `image.digest` | all zeros | Digest of the registration image |
@@ -528,6 +529,7 @@ Each workaround, the upstream issue behind it, and what to remove when the issue
 | The Role covers every pod in `ate-system` | Port-forward RBAC cannot name a pod | none known | The Role |
 | `--preview` in the registration Job | Each template names a snapshot location, which is a preview feature | none known | The flag |
 | The access bindings of the registration Job | Substrate v1.0.1 has no declarative access policy | none known | The `accessBindings` value |
+| The PodMonitors of the idle-suspend chart | Upstream scrapes the control plane only on GKE (PodMonitoring) | none known | `podMonitors` |
 | The `substrate-idle-suspend` chart | Substrate v1.0.1 suspends no idle actor | #424, #483 (not verified) | The chart, and `curl` in the registration image |
 | The `examples/onprem/` values and the cluster requirements page | Upstream ships no profile for self-managed clusters | #1782 (not verified) | The examples |
 | RustFS with large multipart uploads, verified with one multipart snapshot only | Large sparse uploads can fail | #3921 (not verified) | The note, once a check covers 64 to 128 MiB and parallel uploads |

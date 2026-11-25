@@ -19,9 +19,9 @@ REGISTRATION_IMAGE ?= substrate-registration:local
 PLATFORM ?=
 export REQUIRE_SIGNOFF := 0
 
-.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-template-fields secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
+.PHONY: test-examples test-commit test-fast hooks lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract test-template-fields secrets commit-messages image test-image publish image-registration test-image-registration publish-registration test-integration
 
-test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-idle-suspend test-contract test-template-fields test-examples commit-messages
+test-commit: test-fast lint-yaml lint-pipelines lint-renovate charts test-charts test-register test-contract test-template-fields test-examples commit-messages
 
 test-fast: secrets
 
@@ -52,10 +52,6 @@ test-charts:
 test-register:
 	bash charts/substrate-registration/tests/register_test.sh
 
-# The idle-suspend script against stubs of kubectl-ate and curl: idle, each busy signal, each query error, and the actors that are not running or missing.
-test-idle-suspend:
-	bash charts/substrate-idle-suspend/tests/idle_suspend_test.sh
-
 # The registration chart must plan the template names and egress hashes that the substrate-actor chart renders.
 # The template name hashes the fields that make the template, listed in the pick of the helper. A field that is not in
 # the list can never change the name. Each field of an actor in the schema must be in the list or be one of the fields
@@ -79,11 +75,11 @@ test-contract:
 	done
 
 # The ready-to-use values in examples/onprem must lint, render and pass the schemas of each chart.
-# The stub CRD for the GKE PodMonitoring kind must validate too. A placeholder digest stands in for the image of the install, registration and idle-suspend charts.
+# The stub CRD for the GKE PodMonitoring kind must validate too. A placeholder digest stands in for the image of the install and registration charts.
 test-examples:
 	set -e; E=examples/onprem; \
 	digest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd; \
-	for pair in install:install workers:workers actor:actors idle-suspend:idle-suspend registration:actors; do \
+	for pair in install:install workers:workers actor:actors registration:actors; do \
 	  chart=$${pair%%:*}; file=$$E/$${pair##*:}-values.yaml; \
 	  set --; case $$chart in actor|workers) ;; *) set -- --set image.digest=$$digest;; esac; \
 	  helm lint charts/substrate-$$chart -f $$file "$$@" >/dev/null; \

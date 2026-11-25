@@ -121,7 +121,7 @@ Nested virtualization is needed only for microVMs. The charts install the gVisor
 
 ## 11. Interactive `kubectl ate proxy`
 
-Skip this section if you do not run `kubectl ate proxy`. The registration and idle-suspend charts do not need it.
+Skip this section if you do not run `kubectl ate proxy`. The registration chart does not need it.
 
 `kubectl ate proxy` creates a `PodCertificateRequest` for the account `atenet-client` and reads the `atenet-router` Service. The router accepts the client only if its identity is in `config.ingressAllowedSPIFFEIDs`.
 
@@ -141,4 +141,4 @@ The run used a self-managed RKE2 cluster with Kubernetes 1.37, SELinux enforcing
 - A sample actor started, suspended and resumed with its counters intact. It also resumed after a revert dropped the node-local snapshot, so the restore came from RustFS.
 - A second run with `container_engine_t` passed the same steps. The node offered no `ate.dev/kvm` resource.
 - The interactive proxy needed the steps of section 11.
-- The idle-suspend chart, observability and several nodes were not run.
+- Observability and several nodes were not run.

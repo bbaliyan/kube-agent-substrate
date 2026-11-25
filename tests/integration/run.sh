@@ -16,9 +16,6 @@ cd "$(dirname "$0")/../.."
 root="$PWD"
 here="$root/tests/integration"
 
-# shellcheck source=idle.sh
-. "$here/idle.sh"
-
 pinned() { sed -n "s/^$1: *//p" "$here/versions.yaml"; }
 
 cluster="${KIND_CLUSTER_NAME:-substrate-int}"
@@ -480,11 +477,9 @@ rerun_registration
 registration_job_log >"$logs/registration-rerun.log"
 if grep -E "^(Create|Update|Delete|Move)" "$logs/registration-rerun.log"; then fail "a rerun after the egress update changed something"; fi
 
-idle_checks
-
 step "Verify that the requests of the cluster fit the CI runner"
 # A GitHub runner has 4 vCPU. All pods of the harness at its fullest, the control plane, the
-# database, the workers, Prometheus and the idle check, must request no more than that, or a
+# database and the workers, must request no more than that, or a
 # pod stays Pending. The node of a larger host reports a larger allocatable value, so the check
 # compares with the runner, not with the node.
 runner_cpu_millis="${RUNNER_CPU_MILLIS:-4000}"

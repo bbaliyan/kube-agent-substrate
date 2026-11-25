@@ -1,4 +1,4 @@
-# The registration image: the tools that the substrate-registration and substrate-idle-suspend charts run.
+# The registration image: the tools that the substrate-registration chart runs.
 # kubectl-ate, jq, curl and bash. Nothing is downloaded when a container starts.
 #
 # To change the Substrate version, set SUBSTRATE_TAG and SUBSTRATE_COMMIT together.
@@ -21,7 +21,7 @@ ARG SUBSTRATE_COMMIT=20778a6dbb01f13024642851bb592bf67c9fec05
 ARG JQ_VERSION=jq-1.8.2
 ARG JQ_SHA256_AMD64=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
 ARG JQ_SHA256_ARM64=8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309
-# curl is for the substrate-idle-suspend chart. It is a static build (musl), so no RUN step is
+# curl is for the chart substrate-idle-suspend of kube-ai-agents, which pulls this image. It is a static build (musl), so no RUN step is
 # needed in the target architecture. To change it, set the version and both checksums together.
 ARG CURL_VERSION=8.23.0-1
 ARG CURL_SHA256_AMD64=2e0c54ba696afd0df1e899e4344fa63d53d73107f9ac08173314d9be85bc76fd

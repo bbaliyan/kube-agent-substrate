@@ -27,8 +27,12 @@ set -- "${args[@]}"
 missing() { echo "rpc error: code = NotFound desc = missing" >&2; exit 1; }
 verb="$1"; kind="$2"; name="${3:-}"
 case "$verb $kind" in
-  "get atespaces") echo '{}' ;;
-  "get atespace") [ -e "$s/atespaces/$name" ] || missing; echo '{}' ;;
+  "get atespaces")
+    # A hook that holds roles in its own atespaces only is not allowed the global list.
+    if [ -e "$s/deny-global" ]; then echo "rpc error: code = PermissionDenied desc = lacks can_list_atespaces on global:root" >&2; exit 1; fi
+    echo '{}' ;;
+  "get atespace") [ ! -e "$s/deny-atespace" ] || { echo "rpc error: code = PermissionDenied desc = lacks can_get_atespace" >&2; exit 1; }
+    [ -e "$s/atespaces/$name" ] || missing; echo '{}' ;;
   "create atespace") echo "create atespace $name" >>"$s/calls"; touch "$s/atespaces/$name" ;;
   "get actor-template") [ -e "$s/templates/$name" ] || missing; echo '{}' ;;
   "get actor-templates") { ls "$s/templates" || true; } | jq -R '{metadata:{name:.}}' | jq -s '{actorTemplates:.}' ;;
@@ -398,3 +402,21 @@ touch "$work/state/fail-delete" "$work/state/actors/web"
 if run_unregister; then echo "FAIL: an unexpected error did not fail the hook" >&2; exit 1; fi
 expect_calls "" "an error other than NotFound and FailedPrecondition fails the hook"
 rm "$work/state/fail-delete"
+
+# The hook is not allowed the global list. It reads its own atespace instead, so it does not wait.
+rm -rf "$work/state"/{actors,templates}/*
+touch "$work/state/atespaces/apps" "$work/state/actors/web" "$work/state/templates/web-$t1" "$work/state/deny-global"
+run_unregister || { cat "$work/out"; echo "FAIL: unregister waited on the global list" >&2; exit 1; }
+expect_calls "delete actor web
+delete actor-template web-$t1
+delete atespace apps
+" "unregister works when the global list answers PermissionDenied"
+# The atespace is gone now: NotFound still shows the API is up.
+run_unregister || { cat "$work/out"; echo "FAIL: NotFound on the atespace read failed the hook" >&2; exit 1; }
+expect_calls "" "a repeat with the atespace gone succeeds"
+# PermissionDenied on the atespace read means not available: the hook logs once, then times out with the error.
+touch "$work/state/deny-atespace" "$work/state/atespaces/apps"
+if run_unregister; then echo "FAIL: a denied atespace read did not fail the hook" >&2; exit 1; fi
+grep -q "Waiting up to" "$work/out" && grep -q "Last error: .*PermissionDenied" "$work/out"
+echo "ok: a stuck hook logs the wait and the last error"
+rm "$work/state/deny-global" "$work/state/deny-atespace"

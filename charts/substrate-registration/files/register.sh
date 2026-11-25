@@ -63,9 +63,13 @@ create() {
 }
 
 wait_until() {
-  local what="$1" deadline=$((SECONDS + WAIT_SECONDS))
+  local what="$1" deadline=$((SECONDS + WAIT_SECONDS)) waiting=0
   shift
   until "$@"; do
+    if [ "$waiting" = 0 ]; then
+      log "Waiting up to $WAIT_SECONDS seconds: $what"
+      waiting=1
+    fi
     if [ "$SECONDS" -ge "$deadline" ]; then
       log "Timed out after $WAIT_SECONDS seconds: $what"
       [ -z "$LAST_ERROR" ] || log "Last error: $LAST_ERROR"
@@ -78,6 +82,15 @@ wait_until() {
 # kubectl ate finds a ready pod of ate-api-server, so a successful read shows the API is up.
 api_available() {
   LAST_ERROR=$(ate get atespaces -o json 2>&1 >/dev/null) || return 1
+}
+
+# The unregister hook holds the owner role in its own atespaces only, so the global list answers
+# PermissionDenied. A read of one of its atespaces shows the API is up: success and NotFound both count.
+atespace_readable() {
+  LAST_ERROR=$(ate get atespace "$1" -o json 2>&1 >/dev/null) || case "$LAST_ERROR" in
+    *NotFound*) LAST_ERROR="" ;;
+    *) return 1 ;;
+  esac
 }
 
 # The ConfigMap of the substrate-actor chart is current when it holds the expected hashes.
@@ -336,8 +349,13 @@ reconcile_binding() {
 # owner role, which the Job holds in each atespace (see the bindings). An atespace that another
 # agent still uses answers FailedPrecondition, and the script leaves it. Each step accepts NotFound.
 unregister() {
-  local actor atespace rest atespaces=" "
-  wait_until "ate-api-server in $NS is not available" api_available
+  local actor atespace rest atespaces=" " first
+  read -r _ first _ <"$PLAN" || true
+  if [ -z "$first" ]; then
+    log "The plan is empty. Nothing to unregister."
+    return 0
+  fi
+  wait_until "ate-api-server in $NS is not available" atespace_readable "$first"
   while read -r -u 3 actor atespace rest; do
     [ -n "$actor" ] || continue
     log "Delete actor $atespace/$actor"

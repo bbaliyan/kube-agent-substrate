@@ -33,7 +33,7 @@ app.kubernetes.io/part-of: substrate-idle-suspend
 
 {{- /* Names the ConfigMap. Anything that the script reads gives a new name, so a run never mixes two versions. */ -}}
 {{- define "substrate-idle-suspend.hash" -}}
-{{- $inputs := dict "script" (.Files.Get "files/idle-suspend.sh") "actors" (include "substrate-idle-suspend.actors" .) "queries" .Values.queries "idleMinutes" .Values.idleMinutes "idleCpuCores" .Values.idleCpuCores "suspendMode" .Values.suspendMode "url" (include "substrate-idle-suspend.prometheusUrl" .) "timeout" .Values.prometheus.timeoutSeconds -}}
+{{- $inputs := dict "script" (.Files.Get "files/idle-suspend.sh") "actors" (include "substrate-idle-suspend.actors" .) "queries" .Values.queries "idleMinutes" .Values.idleMinutes "idleCpuCores" .Values.idleCpuCores "busy" .Values.busy "suspendMode" .Values.suspendMode "url" (include "substrate-idle-suspend.prometheusUrl" .) "timeout" .Values.prometheus.timeoutSeconds -}}
 {{- toJson $inputs | sha256sum | trunc 10 -}}
 {{- end -}}
 

@@ -69,6 +69,8 @@ case "$query" in
   *lifecycle_operation*) signal=resumed ;;
   *envoy_http_downstream_rq_active*'app="atenet-egress"'*) signal=egress ;;
   *envoy_cluster_upstream_rq_active*) signal=inflight ;;
+  *min_over_time*commands_in_flight*) signal=busy-cap ;;
+  *commands_in_flight*) signal=busy ;;
   *ate_actor_stats_cpu_time*) signal=cpu ;;
   *) echo "stub: unknown query $query" >&2; exit 2 ;;
 esac
@@ -85,12 +87,20 @@ STUB
 chmod +x "$work/bin/"*
 
 # The config that the chart renders for the aws values file, one file for each ConfigMap key.
-helm template r "$chart" -f "$chart/ci/aws-values.yaml" -s templates/configmap.yaml |
-  awk -v dir="$work/config" '
+# render <dir> [helm args]: the busy signal is off unless the args turn it on.
+render() {
+  local dir="$1"
+  shift
+  mkdir -p "$dir"
+  helm template r "$chart" -f "$chart/ci/aws-values.yaml" -s templates/configmap.yaml "$@" |
+  awk -v dir="$dir" '
     /^  [A-Za-z.-]+: \|$/ { if (out) close(out); name = $1; sub(/:$/, "", name); out = dir "/" name; printf "" > out; next }
     out && /^    / { sub(/^    /, ""); print > out; next }
     out && /^[^ ]/ { close(out); out = "" }
   '
+}
+render "$work/config"
+render "$work/config-busy" --set busy.enabled=true
 for f in actors config.env query.health.envoy query.health.egress query.health.router query.health.ateapi query.health.atelet query.routed query.resumed query.inflight query.egress query.cpu; do
   test -s "$work/config/$f" || { echo "FAIL: the chart did not render $f"; exit 1; }
 done
@@ -102,7 +112,7 @@ reset() {
   : >"$state/queries"
   : >"$state/signals"
   local s
-  for s in routed resumed inflight egress cpu; do echo 0 >"$state/value.$s"; done
+  for s in routed resumed inflight egress busy busy-cap cpu; do echo 0 >"$state/value.$s"; done
   for s in health-envoy health-egress health-router health-ateapi health-atelet; do echo 1 >"$state/value.$s"; done
   echo 0.001 >"$state/value.cpu"
   # The aws values file lists reviews/pr-review.
@@ -110,7 +120,7 @@ reset() {
 }
 
 run() {
-  PATH="$work/bin:$PATH" STATE="$state" CONFIG_DIR="$work/config" TOKEN_FILE="$work/token" \
+  PATH="$work/bin:$PATH" STATE="$state" CONFIG_DIR="${CONFIG_DIR_OVERRIDE:-$work/config}" TOKEN_FILE="$work/token" \
     PROMETHEUS_TOKEN_FILE="${PROMETHEUS_TOKEN_FILE:-}" \
     bash "$chart/files/idle-suspend.sh" >"$work/out" 2>&1
 }
@@ -190,6 +200,55 @@ for source in envoy egress router ateapi atelet; do
   grep -q "the $source metrics are missing" "$work/out" || fail "the output did not name the missing $source source"
   test ! -s "$state/signals" || ! grep -qx 'routed\|cpu\|resumed\|inflight\|egress' "$state/signals" || fail "a signal query ran although the $source check failed"
 done
+
+# The busy signal. It is off by default, so the default config never sends its query.
+reset
+grep -qx 'BUSY_ENABLED=false' "$work/config/config.env" || fail "busy is not off by default"
+test ! -e "$work/config/query.busy" || fail "the chart rendered the busy query with busy off"
+echo 1 >"$state/value.busy"
+expect_suspend "with busy off, the busy gauge is not read and the actor is suspended"
+grep -q commands_in_flight "$state/queries" && fail "the busy query was sent with busy off"
+
+CONFIG_DIR_OVERRIDE="$work/config-busy"
+reset
+expect_suspend "with busy on and the gauge at 0, an idle actor is suspended"
+grep -q 'sum(pr_agent_commands_in_flight{ate_actor="reviews/pr-review"})' "$state/queries" || fail "the busy query did not name the metric and the actor"
+grep -q 'max_over_time.*\[30m:15s\]' "$state/queries" || fail "the busy query did not use the idle time"
+grep -q 'busy=0' "$work/out" || fail "the log line did not list busy"
+
+reset
+echo 1 >"$state/value.busy"
+expect_no_suspend "the busy signal alone keeps the actor"
+grep -q 'is busy ( busy )' "$work/out" || fail "the output did not name the busy signal"
+grep -q 'busy=1' "$work/out" || fail "the log line did not list busy=1"
+
+reset
+echo 1 >"$state/value.busy"
+echo 1 >"$state/value.busy-cap"
+expect_suspend "a gauge above 0 for the whole cap is ignored as stale"
+grep -q 'whole cap of 30 minutes' "$work/out" || fail "the output did not say that the cap ignored the gauge"
+grep -q 'min_over_time.*\[30m:15s\]' "$state/queries" || fail "the cap query did not use the cap"
+
+reset
+echo 1 >"$state/value.busy"
+echo 1 >"$state/value.busy-cap"
+echo 1 >"$state/value.routed"
+expect_no_suspend "a stale gauge does not hide another busy signal"
+
+reset
+echo ERR >"$state/value.busy-cap"
+expect_suspend "the cap is not queried when the gauge is 0"
+
+for mode in ERR EMPTY MANY NAN BAD; do
+  reset
+  echo "$mode" >"$state/value.busy"
+  expect_failure_no_suspend "a $mode answer to the busy query fails the run"
+  reset
+  echo 1 >"$state/value.busy"
+  echo "$mode" >"$state/value.busy-cap"
+  expect_failure_no_suspend "a $mode answer to the busy cap query fails the run"
+done
+unset CONFIG_DIR_OVERRIDE
 
 reset
 echo "ACTOR_STATE_SUSPENDED pr-review-0123456789" >"$state/actors/reviews.pr-review"

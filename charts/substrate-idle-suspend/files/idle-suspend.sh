@@ -11,7 +11,7 @@
 # ends the run with a non-zero exit code and suspends nothing for that actor.
 #
 # Input: $CONFIG_DIR/actors holds one line for each actor, atespace/name. config.env holds the
-# settings. query.<signal> holds the PromQL of each signal, and query.health.<source> the query
+# settings. With BUSY_ENABLED=true the optional busy signal runs, and query.busy.cap holds the stale-value cap. query.<signal> holds the PromQL of each signal, and query.health.<source> the query
 # that shows the source of a signal exists. Each query returns one sample.
 set -euo pipefail
 
@@ -21,7 +21,7 @@ TOKEN_FILE="${TOKEN_FILE:-/var/run/ate/token}"
 WORK="$(mktemp -d)"
 export ATE_NAMESPACE="$NS"
 
-IDLE_MINUTES="" IDLE_CPU_CORES="" SUSPEND_MODE="" PROMETHEUS_URL="" QUERY_TIMEOUT=""
+IDLE_MINUTES="" IDLE_CPU_CORES="" SUSPEND_MODE="" PROMETHEUS_URL="" QUERY_TIMEOUT="" BUSY_ENABLED="" BUSY_MAX_MINUTES="" ACTOR=""
 VALUE=""
 
 log() { printf '%s\n' "$*"; }
@@ -33,11 +33,11 @@ load_config() {
   local key value
   while IFS='=' read -r key value; do
     case "$key" in
-      IDLE_MINUTES | IDLE_CPU_CORES | SUSPEND_MODE | PROMETHEUS_URL | QUERY_TIMEOUT) printf -v "$key" '%s' "$value" ;;
+      IDLE_MINUTES | IDLE_CPU_CORES | SUSPEND_MODE | PROMETHEUS_URL | QUERY_TIMEOUT | BUSY_ENABLED | BUSY_MAX_MINUTES) printf -v "$key" '%s' "$value" ;;
     esac
   done <"$CONFIG_DIR/config.env"
   local name
-  for name in IDLE_MINUTES IDLE_CPU_CORES SUSPEND_MODE PROMETHEUS_URL QUERY_TIMEOUT; do
+  for name in IDLE_MINUTES IDLE_CPU_CORES SUSPEND_MODE PROMETHEUS_URL QUERY_TIMEOUT BUSY_ENABLED BUSY_MAX_MINUTES; do
     [ -n "${!name}" ] || { err "$name is not set in config.env"; return 1; }
   done
 }
@@ -50,6 +50,8 @@ query() {
   expr="${expr//@ATESPACE@/$atespace}"
   expr="${expr//@TEMPLATE@/$template}"
   expr="${expr//@WINDOW@/${IDLE_MINUTES}m}"
+  expr="${expr//@CAP@/${BUSY_MAX_MINUTES}m}"
+  expr="${expr//@ACTOR@/$ACTOR}"
   local args=(-sS --fail-with-body --max-time "$QUERY_TIMEOUT" --get --data-urlencode "query=$expr")
   [ -z "${PROMETHEUS_CA_FILE:-}" ] || args+=(--cacert "$PROMETHEUS_CA_FILE")
   if [ -n "${PROMETHEUS_TOKEN_FILE:-}" ]; then
@@ -84,6 +86,7 @@ above() {
 
 check_actor() {
   local atespace="$1" name="$2" json state template template_atespace busy="" signal threshold source
+  ACTOR="$atespace/$name"
   if ! json="$(ate get actor "$name" -a "$atespace" -o json 2>"$WORK/stderr")"; then
     case "$(cat "$WORK/stderr")" in
       *NotFound*) err "actor $atespace/$name does not exist" ;;
@@ -110,8 +113,20 @@ check_actor() {
   done
 
   local summary=""
-  for signal in routed resumed inflight egress cpu; do
+  for signal in routed resumed inflight egress busy cpu; do
+    [ "$signal" != busy ] || [ "$BUSY_ENABLED" = true ] || continue
     query "$signal" "$template_atespace" "$template" || return 1
+    if [ "$signal" = busy ] && above "$VALUE" 0; then
+      # A gauge above 0 for the whole cap is a stale value (a crash or a suspend in a command), not work.
+      local busy_value="$VALUE"
+      query busy.cap "$template_atespace" "$template" || return 1
+      if above "$VALUE" 0; then
+        log "Actor $ACTOR: the busy gauge stayed above 0 for the whole cap of $BUSY_MAX_MINUTES minutes. Ignore it as stale."
+        VALUE=0
+      else
+        VALUE="$busy_value"
+      fi
+    fi
     threshold=0
     [ "$signal" != cpu ] || threshold="$IDLE_CPU_CORES"
     summary="$summary $signal=$VALUE"

@@ -410,7 +410,10 @@ A run suspends an actor only when all of these are true:
 | `resumed` | The API server resumed the actor in the idle time. |
 | `inflight` | Any request or tunnel through the router was open in the idle time. This signal covers every actor. |
 | `egress` | The egress proxy had a request to an outside host in flight in the idle time (counted inside its tunnels, one for each call; an idle open connection does not count). An actor that waits for a model answer is quiet on every other signal, and a suspend closes its outbound connections. This signal covers every actor. A call shorter than a scrape can be missed, and plain TCP passthrough is not counted. |
+| `busy` | Optional, off by default (`busy.enabled`). An agent that reports commands in flight exports a gauge (`busy.metric`, default `pr_agent_commands_in_flight`) that is 1 while a command runs. Its label (`busy.actorLabel`, default `ate_actor`) holds `<atespace>/<actor>`. The signal is busy when the gauge was above 0 at any time in the idle time. A missing series counts as 0. |
 | `cpu` | The CPU rate over the idle time is above `idleCpuCores` (default 0.05). |
+
+A crash or a suspend in the middle of a command can leave the `busy` gauge at 1. If the gauge was above 0 for the whole of the last `busy.maxMinutes` (default 30), the run ignores the `busy` signal and logs one line that names the cap. Set the cap above the longest command. The other signals still apply.
 
 Any other result suspends nothing and fails the run. One failing actor does not stop the run for the other actors. The queries are values in `queries.*`. If your Prometheus names the metrics or labels in another way, change the queries.
 

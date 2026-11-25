@@ -73,6 +73,17 @@ queries:
   # CPU cores that the actors of the template used in the idle time. Compared with idleCpuCores.
   cpu: 'sum(rate(ate_actor_stats_cpu_time_seconds_total{ate_template_atespace="@ATESPACE@",ate_template_name="@TEMPLATE@"}[@WINDOW@]))'
 
+# An optional signal from an agent that reports commands in flight: a gauge that is 1 while a command runs and 0
+# otherwise, with a label that holds "<atespace>/<actor>". The signal is busy when the gauge was above 0
+# at any time in the idle time. With `enabled: false` the signal is not queried, and agents without the gauge keep the
+# other signals. A crash or a suspend in the middle of a command can leave the gauge at 1. If the gauge was above 0
+# for the whole of the last `maxMinutes`, the signal is ignored and the run logs it.
+busy:
+  enabled: false
+  metric: pr_agent_commands_in_flight
+  actorLabel: ate_actor
+  maxMinutes: 30
+
 substrate:
   # The namespace of ate-api-server. Must be ate-system: upstream installs there only.
   namespace: ate-system

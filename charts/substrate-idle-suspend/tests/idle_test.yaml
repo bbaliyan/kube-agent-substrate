@@ -181,6 +181,59 @@ tests:
       - isNotEmpty:
           path: data["query.cpu"]
 
+  - it: leaves the busy signal off by default
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.env"]
+          pattern: "BUSY_ENABLED=false"
+      - notExists:
+          path: data["query.busy"]
+      - notExists:
+          path: data["query.busy.cap"]
+
+  - it: renders the busy queries from the metric, the label and the cap
+    template: templates/configmap.yaml
+    set:
+      busy:
+        enabled: true
+        metric: my_commands
+        actorLabel: who
+        maxMinutes: 45
+    asserts:
+      - matchRegex:
+          path: data["config.env"]
+          pattern: "BUSY_ENABLED=true\nBUSY_MAX_MINUTES=45"
+      - equal:
+          path: data["query.busy"]
+          value: |
+            max_over_time((sum(my_commands{who="@ACTOR@"}) or vector(0))[@WINDOW@:15s])
+      - equal:
+          path: data["query.busy.cap"]
+          value: |
+            min_over_time((sum(my_commands{who="@ACTOR@"}) or vector(0))[@CAP@:15s])
+
+  - it: defaults the busy cap to 30 minutes
+    template: templates/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.env"]
+          pattern: "BUSY_MAX_MINUTES=30"
+
+  - it: rejects a busy cap below 1 minute
+    template: templates/configmap.yaml
+    set:
+      busy.maxMinutes: 0
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a busy metric name with a quote
+    template: templates/configmap.yaml
+    set:
+      busy.metric: 'a"b'
+    asserts:
+      - failedTemplate: {}
+
   - it: runs the pinned image with the service account token as the credential
     template: templates/cronjob.yaml
     asserts:

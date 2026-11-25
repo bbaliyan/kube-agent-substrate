@@ -92,6 +92,10 @@ egress:
 # pod-security.kubernetes.io/enforce=privileged, or a cluster that enforces a stricter level rejects the pods.
 createNamespace: true
 
+# Render a stub of the GKE PodMonitoring CRD. Set true on a cluster without the GKE managed Prometheus operator:
+# ate-setup stops without the CRD (upstream issue #2589). Leave false where the real CRD exists.
+podMonitoringCrdStub: false
+
 # Environment for ate-setup. Use it for secret settings such as
 # ATE_API_POSTGRES_READ_WRITE_CONNECTION_STRING, with a secretKeyRef.
 env: []

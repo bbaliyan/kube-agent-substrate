@@ -44,6 +44,7 @@
       }
     },
     "createNamespace": { "type": "boolean" },
+    "podMonitoringCrdStub": { "type": "boolean" },
     "egress": {
       "type": "object",
       "additionalProperties": false,

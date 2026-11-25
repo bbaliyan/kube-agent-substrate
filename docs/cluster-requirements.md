@@ -113,10 +113,10 @@ Nested virtualization is needed only for microVMs. The charts install the gVisor
 
 ## 10. The GKE PodMonitoring CRD
 
-`ate-setup` stops if the CRD `podmonitorings.monitoring.googleapis.com` is missing (upstream issue #2589). A cluster without the GKE managed Prometheus operator needs a stub. `examples/onprem/podmonitoring-crd.yaml` is a stub that holds no operator.
+`ate-setup` stops if the CRD `podmonitorings.monitoring.googleapis.com` is missing (upstream issue #2589). A cluster without the GKE managed Prometheus operator needs a stub. The chart `substrate-install` renders a stub that holds no operator.
 
-1. Run `kubectl apply -f examples/onprem/podmonitoring-crd.yaml`.
-2. Run `kubectl get crd podmonitorings.monitoring.googleapis.com`.
+1. Set `podMonitoringCrdStub: true` in the values of `substrate-install`.
+2. After the install, run `kubectl get crd podmonitorings.monitoring.googleapis.com`.
 3. Verify that the CRD exists.
 
 ## 11. Interactive `kubectl ate proxy`

@@ -1,0 +1,33 @@
+suite: substrate-install PodMonitoring CRD stub
+templates:
+  - templates/podmonitoring-crd.yaml
+values:
+  - ../ci/aws-values.yaml
+tests:
+  - it: renders no CRD by default, because a cluster with the GKE operator has the real one
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the stub CRD with podMonitoringCrdStub
+    set:
+      podMonitoringCrdStub: true
+    asserts:
+      - isKind:
+          of: CustomResourceDefinition
+      - equal:
+          path: metadata.name
+          value: podmonitorings.monitoring.googleapis.com
+      - equal:
+          path: spec.names.kind
+          value: PodMonitoring
+      - equal:
+          path: spec.versions[0].schema.openAPIV3Schema.x-kubernetes-preserve-unknown-fields
+          value: true
+
+  - it: rejects a value that is not a boolean
+    set:
+      podMonitoringCrdStub: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "podMonitoringCrdStub"

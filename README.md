@@ -36,7 +36,7 @@ Not verified: an install on Amazon EKS or any AWS cluster, Google GKE, Azure AKS
 - The Pod Certificate and ClusterTrustBundle APIs.
 - A default StorageClass for the bundled Postgres, or a class in `config.ateapi.postgres.storageClass` of `substrate-install`.
 - The `privileged` Pod Security level on the control plane namespace `ate-system` and on each worker pool namespace. The install chart creates `ate-system` with this level by default. You must create each worker pool namespace.
-- The stub of the GKE `PodMonitoring` CRD, on any cluster without the GKE operator. Use `examples/onprem/podmonitoring-crd.yaml`.
+- The stub of the GKE `PodMonitoring` CRD, on any cluster without the GKE operator. Set `podMonitoringCrdStub: true` in the values of `substrate-install`.
 - An S3 bucket, or a bucket in an S3-compatible store.
 - One CPU model for each worker pool (see [One CPU model for each pool](#one-cpu-model-for-each-pool)).
 - trust-manager, only if you set `egress.trustedCaPem`.
@@ -67,22 +67,21 @@ config:
 The install chart creates the control plane namespace `ate-system` with the `privileged` Pod Security level (`createNamespace: true`). The S3 keys of an existing Secret must be in `ate-system` before the install. In that case, you create the namespace yourself and set `createNamespace: false`, as `examples/onprem/install-values.yaml` does. Helm cannot adopt a namespace that already exists, so an install with `createNamespace: true` into an existing `ate-system` fails. Argo CD can adopt it.
 
 1. Verify the requirements with [docs/cluster-requirements.md](docs/cluster-requirements.md).
-2. Run `kubectl apply -f examples/onprem/podmonitoring-crd.yaml`.
-3. Create the snapshot bucket.
-4. If the S3 keys come from an existing Secret, create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`.
-5. If the S3 keys come from an existing Secret, create the Secret in `ate-system`.
-6. If you did step 4, set `createNamespace: false` in the install values.
-7. Set `image.digest` in the install values (see [Images](#images)).
-8. Run `helm upgrade --install substrate-install charts/substrate-install -n substrate-system --create-namespace -f install-values.yaml --wait --wait-for-jobs --timeout 20m`.
-9. Label the worker nodes so that they match `pool.nodeSelector`. For the example, run `kubectl label node <node> worker-cpu-model=fixed`.
-10. Create the worker pool namespace with the label `pod-security.kubernetes.io/enforce=privileged`.
-11. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml --set workers.replicas=0`.
-12. Wait a few seconds, so that the SELinux admission policy is active.
-13. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml`.
-14. Run `helm upgrade --install substrate-actor charts/substrate-actor -n substrate-system -f actors-values.yaml`.
-15. Run `helm upgrade --install substrate-registration charts/substrate-registration -n substrate-system -f actors-values.yaml --set image.digest=<digest> --wait --wait-for-jobs --timeout 15m`.
+2. Create the snapshot bucket.
+3. If the S3 keys come from an existing Secret, create the namespace `ate-system` with the label `pod-security.kubernetes.io/enforce=privileged`.
+4. If the S3 keys come from an existing Secret, create the Secret in `ate-system`.
+5. If you did step 3, set `createNamespace: false` in the install values.
+6. Set `image.digest` in the install values (see [Images](#images)).
+7. Run `helm upgrade --install substrate-install charts/substrate-install -n substrate-system --create-namespace -f install-values.yaml --wait --wait-for-jobs --timeout 20m`.
+8. Label the worker nodes so that they match `pool.nodeSelector`. For the example, run `kubectl label node <node> worker-cpu-model=fixed`.
+9. Create the worker pool namespace with the label `pod-security.kubernetes.io/enforce=privileged`.
+10. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml --set workers.replicas=0`.
+11. Wait a few seconds, so that the SELinux admission policy is active.
+12. Run `helm upgrade --install substrate-workers charts/substrate-workers -n <pool namespace> -f workers-values.yaml`.
+13. Run `helm upgrade --install substrate-actor charts/substrate-actor -n substrate-system -f actors-values.yaml`.
+14. Run `helm upgrade --install substrate-registration charts/substrate-registration -n substrate-system -f actors-values.yaml --set image.digest=<digest> --wait --wait-for-jobs --timeout 15m`.
 
-If SELinux is off in the workers values, you can skip steps 11 and 12. With the `aws` profile or an ExternalSecret, skip steps 4 to 6 and keep `createNamespace: true`. The chart then creates `ate-system`.
+If SELinux is off in the workers values, you can skip steps 10 and 11. With the `aws` profile or an ExternalSecret, skip steps 3 to 5 and keep `createNamespace: true`. The chart then creates `ate-system`.
 
 The `substrate-actor` and `substrate-registration` releases must be in the same namespace, because the Job reads the ConfigMaps of the actors. You can also sync each chart with Argo CD. The charts carry sync waves and hooks for it.
 

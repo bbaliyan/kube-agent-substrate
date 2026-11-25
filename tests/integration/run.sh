@@ -245,8 +245,6 @@ kubectl -n ate-system wait --for=condition=complete job/rustfs-bucket-init --tim
 # --- Install -----------------------------------------------------------------
 
 step "Install the control plane with the substrate-install chart"
-kubectl apply -f "$here/podmonitoring-crd.yaml" >/dev/null
-kubectl wait --for=condition=Established --timeout=60s crd/podmonitorings.monitoring.googleapis.com >/dev/null
 kubectl create namespace "$release_ns" >/dev/null
 install_chart() {
   helm upgrade --install substrate-install charts/substrate-install -n "$release_ns" \

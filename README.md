@@ -253,11 +253,12 @@ A new policy takes a few seconds to become active, and it does not change a pod 
 
 ### Observability
 
-Set `observability.enabled` to `true` to render a Prometheus Operator `PodMonitor` for each entry in `observability.components`, and a ConfigMap for each dashboard in `observability.dashboards`. It is off by default, so a cluster without the Prometheus Operator can install the chart.
+Set `observability.enabled` to `true` to render a Prometheus Operator `PodMonitor` for each entry in `observability.components`, a ConfigMap with the dashboard of the chart, and a ConfigMap for each dashboard in `observability.dashboards`. It is off by default, so a cluster without the Prometheus Operator can install the chart.
 
 - Set `observability.podMonitorLabels` to the labels that your Prometheus selects.
 - Each series carries the label `app` of its pod, for example `app="atenet-router"`.
 - The PodMonitors select the control plane, not the pool. Turn observability on in one release only.
+- The dashboard of the chart, **Agent Substrate**, shows the workers, the actor lifecycle, the snapshots, the router and the API. It needs the `app` label that these PodMonitors add. To leave it out, set `observability.defaultDashboard` to `false`.
 - Upstream v1.0.1 ships no dashboard. The dashboard ConfigMaps carry the label `grafana_dashboard: "1"`. Change the label name with `observability.dashboardLabel`.
 
 ## Define actors

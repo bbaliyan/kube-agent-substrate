@@ -193,6 +193,21 @@ tests:
           pattern: '"uid": "agent-substrate"'
         documentIndex: 7
 
+  - it: lets a dashboard of the consumer with the same key replace the dashboard of the chart
+    template: templates/observability.yaml
+    set:
+      observability:
+        enabled: true
+        dashboards:
+          agent-substrate.json: '{"title":"Mine"}'
+    asserts:
+      - hasDocuments:
+          count: 8
+      - equal:
+          path: data["agent-substrate.json"]
+          value: '{"title":"Mine"}'
+        documentIndex: 7
+
   - it: leaves the dashboard of the chart out when it is off
     template: templates/observability.yaml
     set:

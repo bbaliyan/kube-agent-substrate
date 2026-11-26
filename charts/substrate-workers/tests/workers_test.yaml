@@ -131,6 +131,21 @@ tests:
           pattern: monitoring
         template: templates/workerpool.yaml
 
+  - it: copies the app label of the pods to the series, so a query can select a component by app
+    template: templates/observability.yaml
+    set:
+      observability:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.podTargetLabels
+          value: [app]
+        documentIndex: 0
+      - equal:
+          path: spec.podTargetLabels
+          value: [app]
+        documentIndex: 3
+
   - it: renders one PodMonitor for each component and one ConfigMap for each dashboard when on
     template: templates/observability.yaml
     set:

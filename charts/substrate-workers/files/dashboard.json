@@ -5,7 +5,7 @@
   "agent-substrate"
  ],
  "schemaVersion": 39,
- "description": "Health of the Agent Substrate control plane: actors, workers, snapshots, router and API.",
+ "description": "Health of the Agent Substrate control plane: actors, workers, snapshots, router and API. Counts over long time ranges are sampled more coarsely and can be a few percent low.",
  "graphTooltip": 1,
  "time": {
   "from": "now-24h",
@@ -21,6 +21,20 @@
     "type": "datasource",
     "query": "prometheus",
     "current": {}
+   },
+   {
+    "name": "step",
+    "type": "interval",
+    "hide": 2,
+    "auto": true,
+    "auto_count": 2000,
+    "auto_min": "1m",
+    "query": "1m,5m,15m,1h",
+    "refresh": 2,
+    "current": {
+     "text": "auto",
+     "value": "$__auto_interval_step"
+    }
    },
    {
     "name": "atespace",
@@ -181,7 +195,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum(((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}))[$__range:5m]))) or vector(0)",
+     "expr": "sum((((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\"}))[$__range:$step]))) or vector(0)",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -239,7 +253,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.95, sum by (le)(((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}))[$__range:5m]))))",
+     "expr": "histogram_quantile(0.95, sum by (le)((((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",ate_actor_operation_name=\"resume\",error_type=\"\"}))[$__range:$step]))))",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -297,7 +311,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum(((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}))[$__range:5m]))) or vector(0)",
+     "expr": "sum((((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type!=\"\"}))[$__range:$step]))) or vector(0)",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -359,7 +373,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum(((increase((max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}))[$__range:5m]))) or vector(0)",
+     "expr": "sum((((increase((max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_crashes_total{ate_template_atespace=~\"$atespace\"}))[$__range:$step]))) or vector(0)",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -421,7 +435,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum(((increase((max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"} offset $__range))) or increase((max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}))[$__range:5m]))) or vector(0)",
+     "expr": "sum((((increase((max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"} offset $__range))) or increase((max without (job, endpoint, container, service) (rpc_server_call_duration_seconds_count{app=\"ate-api-server\",rpc_response_status_code=~\"UNKNOWN|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED|INTERNAL|UNAVAILABLE|DATA_LOSS\"}))[$__range:$step]))) or vector(0)",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -679,7 +693,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum by (ate_actor_operation_name)(((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]))) > 0",
+     "expr": "sum by (ate_actor_operation_name)((((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_count{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]))) > 0",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -691,7 +705,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.5, sum by (le, ate_actor_operation_name)(((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.5, sum by (le, ate_actor_operation_name)((((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "B",
      "instant": true,
@@ -703,7 +717,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.95, sum by (le, ate_actor_operation_name)(((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.95, sum by (le, ate_actor_operation_name)((((increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_lifecycle_operation_duration_seconds_bucket{ate_template_atespace=~\"$atespace\",error_type=\"\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "C",
      "instant": true,
@@ -988,7 +1002,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum by (ate_snapshot_phase)(((increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]))) > 0",
+     "expr": "sum by (ate_snapshot_phase)((((increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]))) > 0",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -1000,7 +1014,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.5, sum by (le, ate_snapshot_phase)(((increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.5, sum by (le, ate_snapshot_phase)((((increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "B",
      "instant": true,
@@ -1012,7 +1026,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.95, sum by (le, ate_snapshot_phase)(((increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.95, sum by (le, ate_snapshot_phase)((((increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_restore_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "C",
      "instant": true,
@@ -1089,7 +1103,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum by (ate_snapshot_phase)(((increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]))) > 0",
+     "expr": "sum by (ate_snapshot_phase)((((increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]))) > 0",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -1101,7 +1115,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.5, sum by (le, ate_snapshot_phase)(((increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.5, sum by (le, ate_snapshot_phase)((((increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "B",
      "instant": true,
@@ -1113,7 +1127,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.95, sum by (le, ate_snapshot_phase)(((increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.95, sum by (le, ate_snapshot_phase)((((increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (ate_actor_checkpoint_duration_seconds_bucket{ate_template_atespace=~\"$atespace\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "C",
      "instant": true,
@@ -1190,7 +1204,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum by (file_name)(((increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}))[$__range:5m]))) / (sum by (file_name)(((increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}))[$__range:5m]))) > 0)",
+     "expr": "sum by (file_name)((((increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_sum{ate_template_atespace=~\"$atespace\"}))[$__range:$step]))) / (sum by (file_name)((((increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atelet_snapshot_size_bytes_count{ate_template_atespace=~\"$atespace\"}))[$__range:$step]))) > 0)",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -1440,7 +1454,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum by (ate_router_resume)(((increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]))) > 0",
+     "expr": "sum by (ate_router_resume)((((increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_count{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]))) > 0",
      "legendFormat": "__auto",
      "refId": "A",
      "instant": true,
@@ -1452,7 +1466,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.5, sum by (le, ate_router_resume)(((increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.5, sum by (le, ate_router_resume)((((increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "B",
      "instant": true,
@@ -1464,7 +1478,7 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.95, sum by (le, ate_router_resume)(((increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]) + (min_over_time((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m]) unless max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:5m])))) >= 0",
+     "expr": "histogram_quantile(0.95, sum by (le, ate_router_resume)((((increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]) or (max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}) * 0)) + (min_over_time((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step]) unless max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"} offset $__range))) or increase((max without (job, endpoint, container, service) (atenet_router_route_duration_seconds_bucket{ate_template_atespace=~\"$atespace|unknown\",otel_scope_name=\"atenet-router\"}))[$__range:$step])))) >= 0",
      "legendFormat": "__auto",
      "refId": "C",
      "instant": true,

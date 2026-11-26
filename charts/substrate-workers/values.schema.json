@@ -68,6 +68,7 @@
             }
           }
         },
+        "defaultDashboard": { "type": "boolean" },
         "dashboards": { "$ref": "#/definitions/stringMap" },
         "dashboardLabel": { "type": "string", "minLength": 1 }
       }

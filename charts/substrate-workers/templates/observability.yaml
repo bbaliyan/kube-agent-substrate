@@ -24,7 +24,12 @@ spec:
       interval: {{ $root.Values.observability.interval }}
 ---
 {{- end }}
-{{- range $file, $json := .Values.observability.dashboards }}
+{{- $dashboards := deepCopy .Values.observability.dashboards }}
+{{- /* A dashboard of the consumer with the same key wins. */}}
+{{- if and .Values.observability.defaultDashboard (not (hasKey $dashboards "agent-substrate.json")) }}
+{{- $_ := set $dashboards "agent-substrate.json" (.Files.Get "files/dashboard.json" | trim) }}
+{{- end }}
+{{- range $file, $json := $dashboards }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
